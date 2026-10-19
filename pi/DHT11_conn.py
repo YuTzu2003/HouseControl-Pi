@@ -3,9 +3,6 @@ import RPi.GPIO as GPIO
 
 DHT_PIN = 7 
 
-GPIO.setwarnings(False)
-GPIO.setmode(GPIO.BOARD)
-
 def read_dht11():
     GPIO.setup(DHT_PIN, GPIO.OUT)
     GPIO.output(DHT_PIN, GPIO.LOW)
@@ -52,20 +49,16 @@ def read_dht11():
     temperature = data[2] + data[3] / 10
     return temperature, humidity
 
-try:
-    print("開始讀取 DHT11 溫濕度...")
-    while True:
-        result = read_dht11()
-        if result is not None:
-            temperature, humidity = result
-            print(f"溫度：{temperature:.1f} °C")
-            print(f"濕度：{humidity:.1f} %")
-        else:
-            print("error")
-        time.sleep(2)
-
-except KeyboardInterrupt:
-    print("\n程式結束")
-
-finally:
-    GPIO.cleanup()
+if __name__ == "__main__":
+    GPIO.setwarnings(False)
+    GPIO.setmode(GPIO.BOARD)
+    try:
+        print("開始讀取 DHT11 溫濕度...")
+        while True:
+            result = read_dht11()
+            print(result if result is not None else "error")
+            time.sleep(2)
+    except KeyboardInterrupt:
+        print("\n程式結束")
+    finally:
+        GPIO.cleanup()

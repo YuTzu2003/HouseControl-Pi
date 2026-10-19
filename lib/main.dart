@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'family_members.dart';
+import 'house_api.dart';
+import 'history_page.dart';
 import 'mqtt_light_service.dart';
 import 'mqtt_settings.dart';
 
@@ -319,11 +322,16 @@ class _MainShellState extends State<MainShell> {
     super.initState();
     _pages = [
       HomePage(settings: widget.settings, autoConnect: widget.autoConnect),
-      const HistoryPage(),
+      HistoryPage(settings: widget.settings),
       const AutomationPage(),
       SettingsPage(
         host: widget.settings.host,
         onEdit: widget.onEditSettings,
+        onMembers: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => FamilyMembersPage(settings: widget.settings),
+          ),
+        ),
       ),
     ];
   }
@@ -488,6 +496,9 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
         const SizedBox(height: 20),
+        const _CameraPlaceholder(),
+        const SizedBox(height: 30),
+        if (false) ...[
         _LiveView(state: _state),
         const SizedBox(height: 14),
         _TelemetryStrip(state: _state),
@@ -499,6 +510,7 @@ class _HomePageState extends State<HomePage> {
               .showSnackBar(const SnackBar(content: Text('刷卡紀錄已顯示於「活動」頁面。'))),
         ),
         const SizedBox(height: 30),
+        ],
         const _Kicker('LIGHTING'),
         const SizedBox(height: 10),
         _MqttLightingConsole(
@@ -549,6 +561,32 @@ class _BrandMark extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
     ),
     child: const Icon(Icons.home_rounded, color: Colors.white, size: 22),
+  );
+}
+
+class _CameraPlaceholder extends StatelessWidget {
+  const _CameraPlaceholder();
+
+  @override
+  Widget build(BuildContext context) => AspectRatio(
+    aspectRatio: 1.55,
+    child: Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF101417),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFF31505D)),
+      ),
+      child: const Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.videocam_off_outlined, color: Color(0xFF91A5AF), size: 42),
+          SizedBox(height: 12),
+          Text('監視器尚未連線', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+          SizedBox(height: 4),
+          Text('串流設定完成後會顯示即時畫面', style: TextStyle(color: Color(0xFF91A5AF), fontSize: 12)),
+        ],
+      ),
+    ),
   );
 }
 
@@ -1137,14 +1175,38 @@ class _PresetRow extends StatelessWidget {
   }
 }
 
-class HistoryPage extends StatelessWidget {
-  const HistoryPage({super.key});
+class _LegacyHistoryPage extends StatefulWidget {
+  const _LegacyHistoryPage({super.key, required this.settings});
+  final MqttSettings settings;
+
   @override
-  Widget build(BuildContext context) => _DarkPage(
+  State<_LegacyHistoryPage> createState() => _LegacyHistoryPageState();
+}
+
+class _LegacyHistoryPageState extends State<_LegacyHistoryPage> {
+  List<SensorReading>? _readings;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final readings = await HouseApi(widget.settings).sensorHistory();
+    if (mounted) setState(() => _readings = readings);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final latest = _readings?.isNotEmpty == true ? _readings!.first : null;
+    return _DarkPage(
     title: '活動紀錄',
     subtitle: '感測器與門禁事件  •  最近 24 小時',
     child: Column(
       children: [
+        _SensorSummary(latest: latest, onRefresh: _load),
+        const SizedBox(height: 14),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(18),
@@ -1231,6 +1293,37 @@ class HistoryPage extends StatelessWidget {
           granted: false,
         ),
       ],
+    ),
+  );
+}
+
+}
+
+class _SensorSummary extends StatelessWidget {
+  const _SensorSummary({required this.latest, required this.onRefresh});
+  final SensorReading? latest;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: latest == null
+          ? Row(children: [
+              const Expanded(child: Text('尚未收到溫濕度資料，請確認 Pi 的 DHT11 服務與 FastAPI。')),
+              IconButton(onPressed: onRefresh, icon: const Icon(Icons.refresh_rounded)),
+            ])
+          : Row(children: [
+              const Icon(Icons.thermostat_rounded, color: AppColors.red),
+              const SizedBox(width: 8),
+              Text('${latest!.temperature.toStringAsFixed(1)}°C', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+              const SizedBox(width: 20),
+              const Icon(Icons.water_drop_outlined, color: AppColors.blue),
+              const SizedBox(width: 8),
+              Text('${latest!.humidity.toStringAsFixed(0)}%', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+              const Spacer(),
+              IconButton(onPressed: onRefresh, tooltip: '重新整理', icon: const Icon(Icons.refresh_rounded)),
+            ]),
     ),
   );
 }
@@ -1395,10 +1488,16 @@ class AutomationPage extends StatelessWidget {
 }
 
 class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key, required this.host, required this.onEdit});
+  const SettingsPage({
+    super.key,
+    required this.host,
+    required this.onEdit,
+    required this.onMembers,
+  });
 
   final String host;
   final VoidCallback onEdit;
+  final VoidCallback onMembers;
 
   @override
   Widget build(BuildContext context) => _DarkPage(
@@ -1406,6 +1505,14 @@ class SettingsPage extends StatelessWidget {
     subtitle: '樹莓派與設備來源',
     child: Column(
       children: [
+        _SettingsActionRow(
+          icon: Icons.groups_2_rounded,
+          color: AppColors.blue,
+          title: '家庭成員',
+          subtitle: '新增成員並選擇專屬頭像',
+          onTap: onMembers,
+        ),
+        const SizedBox(height: 10),
         _ActivityRow(
           icon: Icons.memory_rounded,
           color: AppColors.green,
@@ -1436,6 +1543,55 @@ class SettingsPage extends StatelessWidget {
           ),
         ),
       ],
+    ),
+  );
+}
+
+class _SettingsActionRow extends StatelessWidget {
+  const _SettingsActionRow({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+  final IconData icon;
+  final Color color;
+  final String title, subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: AppColors.surface,
+    borderRadius: BorderRadius.circular(14),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 72),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.line),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 3),
+                  Text(subtitle, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
+          ],
+        ),
+      ),
     ),
   );
 }

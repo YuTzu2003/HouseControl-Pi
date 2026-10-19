@@ -65,5 +65,5 @@ key.properties
 
 # Widget Preview related
 .widget_preview/
-
+*.txt
 .agents/

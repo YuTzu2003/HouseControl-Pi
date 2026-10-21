@@ -42,4 +42,35 @@ class RfidCardApi {
       client.close(force: true);
     }
   }
+
+  Future<List<RfidAccessLog>> accessLogs({int limit = 100}) async {
+    final client = HttpClient();
+    try {
+      final request = await client.getUrl(Uri.parse('http://${_settings.host}:8000/rfid/access-logs?limit=$limit'));
+      final response = await request.close().timeout(const Duration(seconds: 4));
+      if (response.statusCode != HttpStatus.ok) return [];
+      final value = jsonDecode(await response.transform(utf8.decoder).join());
+      if (value is! List) return [];
+      return value.whereType<Map<String, dynamic>>().map(RfidAccessLog.fromJson).toList();
+    } catch (_) {
+      return [];
+    } finally {
+      client.close(force: true);
+    }
+  }
+}
+
+class RfidAccessLog {
+  const RfidAccessLog({required this.uid, required this.memberName, required this.granted, required this.scannedAt});
+  final String uid;
+  final String? memberName;
+  final bool granted;
+  final String scannedAt;
+
+  factory RfidAccessLog.fromJson(Map<String, dynamic> json) => RfidAccessLog(
+    uid: json['uid'] as String? ?? '',
+    memberName: json['member_name'] as String?,
+    granted: (json['granted'] as num?)?.toInt() == 1 || json['granted'] == true,
+    scannedAt: json['scanned_at'] as String? ?? '',
+  );
 }

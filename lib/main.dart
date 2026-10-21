@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'family_members.dart';
 import 'house_api.dart';
 import 'history_page.dart';
 import 'mqtt_light_service.dart';
+import 'mqtt_rfid_service.dart';
 import 'mqtt_settings.dart';
 
 Future<void> main() async {
@@ -15,16 +17,17 @@ Future<void> main() async {
 }
 
 class AppColors {
-  static const background = Color(0xFFF7F9FC);
+  static const background = Color(0xFFF2F2F7);
   static const surface = Color(0xFFFFFFFF);
-  static const surfaceRaised = Color(0xFFF0F4F8);
-  static const line = Color(0xFFD8E0E8);
-  static const text = Color(0xFF15212B);
-  static const muted = Color(0xFF5F6F7D);
-  static const blue = Color(0xFF0077B6);
-  static const green = Color(0xFF168A55);
-  static const red = Color(0xFFC62828);
-  static const amber = Color(0xFF966500);
+  static const surfaceRaised = Color(0xFFEAEAEE);
+  static const line = Color(0xFFE1E1E6);
+  static const text = Color(0xFF1C1C1E);
+  static const muted = Color(0xFF6E6E73);
+  static const selection = Color(0xFFE7E7EC);
+  static const selectionSoft = Color(0xFFF0F0F3);
+  static const blue = Color(0xFF3478F6);
+  static const red = Color(0xFFE04F4F);
+  static const amber = Color(0xFFB87916);
 }
 
 class HouseControlApp extends StatefulWidget {
@@ -59,42 +62,146 @@ class _HouseControlAppState extends State<HouseControlApp> {
       useMaterial3: true,
       brightness: Brightness.light,
       colorScheme: const ColorScheme.light(
-        primary: AppColors.blue,
+        primary: AppColors.text,
         onPrimary: Colors.white,
         surface: AppColors.surface,
         onSurface: AppColors.text,
         error: AppColors.red,
       ),
       scaffoldBackgroundColor: AppColors.background,
-      textTheme: ThemeData.light().textTheme.apply(
-        fontFamily: 'sans',
-        bodyColor: AppColors.text,
-        displayColor: AppColors.text,
+      textTheme: ThemeData.light().textTheme.copyWith(
+        displaySmall: const TextStyle(
+          fontFamily: 'sans',
+          fontSize: 32,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.7,
+          color: AppColors.text,
+        ),
+        headlineSmall: const TextStyle(
+          fontFamily: 'sans',
+          fontSize: 24,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.4,
+          color: AppColors.text,
+        ),
+        titleLarge: const TextStyle(
+          fontFamily: 'sans',
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+          color: AppColors.text,
+        ),
+        titleMedium: const TextStyle(
+          fontFamily: 'sans',
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          color: AppColors.text,
+        ),
+        bodyLarge: const TextStyle(
+          fontFamily: 'sans',
+          fontSize: 16,
+          fontWeight: FontWeight.w400,
+          color: AppColors.text,
+        ),
+        bodyMedium: const TextStyle(
+          fontFamily: 'sans',
+          fontSize: 14,
+          fontWeight: FontWeight.w400,
+          color: AppColors.text,
+        ),
+        labelLarge: const TextStyle(
+          fontFamily: 'sans',
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+          letterSpacing: .2,
+          color: AppColors.text,
+        ),
       ),
       cardTheme: CardThemeData(
         color: AppColors.surface,
         margin: EdgeInsets.zero,
-        elevation: 0,
+        elevation: 1,
+        shadowColor: const Color(0x14000000),
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
           side: const BorderSide(color: AppColors.line),
         ),
       ),
       navigationBarTheme: const NavigationBarThemeData(
-        height: 74,
+        height: 78,
         backgroundColor: AppColors.surface,
-        indicatorColor: Color(0xFFDCEFFD),
+        indicatorColor: AppColors.selection,
         labelTextStyle: WidgetStatePropertyAll(
           TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
         ),
-        iconTheme: WidgetStatePropertyAll(IconThemeData(color: AppColors.muted)),
+        iconTheme: WidgetStatePropertyAll(
+          IconThemeData(color: AppColors.muted),
+        ),
       ),
       sliderTheme: const SliderThemeData(
-        activeTrackColor: AppColors.blue,
+        activeTrackColor: AppColors.text,
         inactiveTrackColor: AppColors.line,
         thumbColor: AppColors.text,
         overlayColor: Color(0x3300AEEF),
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: AppColors.background,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        titleTextStyle: TextStyle(
+          color: AppColors.text,
+          fontSize: 22,
+          fontWeight: FontWeight.w800,
+        ),
+        iconTheme: IconThemeData(color: AppColors.text),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.text,
+          foregroundColor: Colors.white,
+          minimumSize: const Size(0, 48),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.text,
+          minimumSize: const Size(0, 48),
+          side: const BorderSide(color: AppColors.line),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: AppColors.text,
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(18)),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: AppColors.surface,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 16,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: AppColors.line),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: AppColors.line),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: AppColors.text, width: 1.5),
+        ),
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: AppColors.surfaceRaised,
@@ -103,23 +210,91 @@ class _HouseControlAppState extends State<HouseControlApp> {
         behavior: SnackBarBehavior.floating,
       ),
     ),
-    home: _editingSettings || _settings == null
-        ? MqttSetupPage(
-            initialSettings: _settings,
-            onSaved: (settings) async {
-              await MqttSettingsStore().save(settings);
-              if (!mounted) return;
-              setState(() {
-                _settings = settings;
-                _editingSettings = false;
-              });
-            },
-          )
-        : MainShell(
-            settings: _settings!,
-            autoConnect: widget.autoConnect,
-            onEditSettings: () => setState(() => _editingSettings = true),
-          ),
+    home: _AppLaunchGate(
+      child: _editingSettings || _settings == null
+          ? MqttSetupPage(
+              initialSettings: _settings,
+              onSaved: (settings) async {
+                await MqttSettingsStore().save(settings);
+                if (!mounted) return;
+                setState(() {
+                  _settings = settings;
+                  _editingSettings = false;
+                });
+              },
+            )
+          : MainShell(
+              settings: _settings!,
+              autoConnect: widget.autoConnect,
+              onEditSettings: () => setState(() => _editingSettings = true),
+            ),
+    ),
+  );
+}
+
+class _AppLaunchGate extends StatefulWidget {
+  const _AppLaunchGate({required this.child});
+  final Widget child;
+
+  @override
+  State<_AppLaunchGate> createState() => _AppLaunchGateState();
+}
+
+class _AppLaunchGateState extends State<_AppLaunchGate> {
+  bool _showLaunch = true;
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.delayed(const Duration(milliseconds: 900), () {
+      if (mounted) setState(() => _showLaunch = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedSwitcher(
+    duration: const Duration(milliseconds: 260),
+    switchInCurve: Curves.easeOut,
+    switchOutCurve: Curves.easeIn,
+    child: _showLaunch
+        ? const _LaunchScreen(key: ValueKey('launch'))
+        : KeyedSubtree(key: const ValueKey('app'), child: widget.child),
+  );
+}
+
+class _LaunchScreen extends StatelessWidget {
+  const _LaunchScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: AppColors.text,
+    body: Center(
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: .88, end: 1),
+        duration: const Duration(milliseconds: 650),
+        curve: Curves.easeOutCubic,
+        builder: (context, value, child) => Opacity(
+          opacity: value,
+          child: Transform.scale(scale: value, child: child),
+        ),
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.home_rounded, color: Colors.white, size: 48),
+            SizedBox(height: 14),
+            Text(
+              'HOME CONTROL',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.8,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
   );
 }
 
@@ -149,7 +324,9 @@ class _MqttSetupPageState extends State<MqttSetupPage> {
   void initState() {
     super.initState();
     _host = TextEditingController(text: widget.initialSettings?.host);
-    _port = TextEditingController(text: '${widget.initialSettings?.port ?? 1883}');
+    _port = TextEditingController(
+      text: '${widget.initialSettings?.port ?? 1883}',
+    );
     _username = TextEditingController(text: widget.initialSettings?.username);
     _password = TextEditingController(text: widget.initialSettings?.password);
   }
@@ -260,9 +437,8 @@ class _MqttSetupPageState extends State<MqttSetupPage> {
                             labelText: 'MQTT 密碼',
                             prefixIcon: Icon(Icons.lock_outline_rounded),
                           ),
-                          validator: (value) => (value?.isEmpty ?? true)
-                              ? '請輸入 MQTT 密碼'
-                              : null,
+                          validator: (value) =>
+                              (value?.isEmpty ?? true) ? '請輸入 MQTT 密碼' : null,
                         ),
                         const SizedBox(height: 24),
                         SizedBox(
@@ -274,7 +450,9 @@ class _MqttSetupPageState extends State<MqttSetupPage> {
                                 ? const SizedBox(
                                     height: 20,
                                     width: 20,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
                                   )
                                 : const Text('儲存並連線'),
                           ),
@@ -341,6 +519,7 @@ class _MainShellState extends State<MainShell> {
     body: SafeArea(child: _pages[_page]),
     bottomNavigationBar: NavigationBar(
       selectedIndex: _page,
+      labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       onDestinationSelected: (index) => setState(() => _page = index),
       destinations: const [
         NavigationDestination(
@@ -381,9 +560,10 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   late final MqttLightService _lightService;
+  late final MqttRfidService _rfidService;
   Timer? _brightnessDebounce;
+  List<SensorReading>? _todayReadings;
   DemoState _state = DemoState.ready;
-  bool _musicPlaying = false;
   String _scene = '回家';
   bool get _canControl => _state == DemoState.ready;
 
@@ -391,12 +571,67 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _lightService = MqttLightService(widget.settings);
-    if (widget.autoConnect) _lightService.connect();
+    _rfidService = MqttRfidService(widget.settings);
+    _rfidService.event.addListener(_handleRfidEvent);
+    _loadTodayReadings();
+    if (widget.autoConnect) {
+      _lightService.connect();
+      _rfidService.connect();
+    }
+  }
+
+  Future<void> _loadTodayReadings() async {
+    final readings = await HouseApi(widget.settings).sensorHistory(limit: 48);
+    final now = DateTime.now();
+    final today = readings.where((reading) {
+      final date = DateTime.tryParse(reading.recordedAt)?.toLocal();
+      return date != null &&
+          date.year == now.year &&
+          date.month == now.month &&
+          date.day == now.day;
+    }).toList();
+    if (mounted)
+      setState(
+        () =>
+            _todayReadings = today.isEmpty ? readings.take(1).toList() : today,
+      );
+  }
+
+  void _handleRfidEvent() {
+    final event = _rfidService.event.value;
+    if (!mounted || event == null) return;
+    if (event.type != 'access_granted' && event.type != 'access_denied') return;
+    final known = event.type == 'access_granted';
+    final memberName = event.memberName?.trim().isNotEmpty == true
+        ? event.memberName!
+        : '未知';
+    final color = known ? AppColors.blue : AppColors.red;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 5),
+        content: Row(
+          children: [
+            Icon(
+              known
+                  ? Icons.verified_user_outlined
+                  : Icons.warning_amber_rounded,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 10),
+            Expanded(child: Text(known ? '$memberName 刷卡進入' : '警訊：未知的人嘗試刷卡進入')),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   void dispose() {
     _brightnessDebounce?.cancel();
+    _rfidService.event.removeListener(_handleRfidEvent);
+    _rfidService.dispose();
     _lightService.dispose();
     super.dispose();
   }
@@ -444,7 +679,7 @@ class _HomePageState extends State<HomePage> {
                 leading: Icon(
                   state.$3,
                   color: state.$1 == DemoState.ready
-                      ? AppColors.green
+                      ? AppColors.blue
                       : AppColors.text,
                 ),
                 title: Text(state.$2),
@@ -467,51 +702,54 @@ class _HomePageState extends State<HomePage> {
       children: [
         Row(
           children: [
-            const _BrandMark(),
-            const SizedBox(width: 10),
             const Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'HOME CONTROL',
+                    'My House',
                     style: TextStyle(
-                      fontSize: 17,
-                      letterSpacing: 1.4,
-                      fontWeight: FontWeight.w900,
+                      fontSize: 26,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.4,
                     ),
                   ),
+                  SizedBox(height: 4),
                   Text(
-                    '客廳基地',
-                    style: TextStyle(fontSize: 12, color: AppColors.muted),
+                    '今天的家，一切都在掌握中',
+                    style: TextStyle(color: AppColors.muted),
                   ),
                 ],
               ),
             ),
-            IconButton(
-              tooltip: '切換展示狀態',
-              onPressed: _chooseState,
-              icon: const Icon(Icons.tune_rounded),
+            Container(
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.line),
+              ),
+              child: IconButton(
+                tooltip: '切換展示狀態',
+                onPressed: _chooseState,
+                icon: const Icon(Icons.tune_rounded),
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 18),
         const _CameraPlaceholder(),
-        const SizedBox(height: 30),
-        if (false) ...[
-        _LiveView(state: _state),
-        const SizedBox(height: 14),
-        _TelemetryStrip(state: _state),
-        const SizedBox(height: 30),
-        const _Kicker('ACCESS EVENT'),
-        const SizedBox(height: 10),
-        _RfidEventCard(
-          onTap: () => ScaffoldMessenger.of(context)
-              .showSnackBar(const SnackBar(content: Text('刷卡紀錄已顯示於「活動」頁面。'))),
+        const SizedBox(height: 22),
+        _TodaySensorCard(
+          readings: _todayReadings,
+          onRefresh: _loadTodayReadings,
         ),
-        const SizedBox(height: 30),
-        ],
-        const _Kicker('LIGHTING'),
+        const SizedBox(height: 22),
+        const Text(
+          '家中設備',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 10),
+        const _Kicker('燈光控制'),
         const SizedBox(height: 10),
         _MqttLightingConsole(
           service: _lightService,
@@ -524,21 +762,17 @@ class _HomePageState extends State<HomePage> {
             );
           },
         ),
-        const SizedBox(height: 30),
-        const _Kicker('QUICK CAPTURE'),
+        const SizedBox(height: 22),
+        const _Kicker('快捷操作'),
         const SizedBox(height: 10),
         _QuickControls(
-          playing: _musicPlaying,
           enabled: _canControl,
-          onMusic: () => _action(
-            () => _musicPlaying = !_musicPlaying,
-            _musicPlaying ? '音樂已播放' : '音樂已暫停',
+          onOpenMusic: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const _MusicModePage()),
           ),
-          onPick: () => ScaffoldMessenger.of(context)
-              .showSnackBar(const SnackBar(content: Text('手機音樂選擇會在連接播放端後啟用。'))),
         ),
-        const SizedBox(height: 30),
-        const _Kicker('PRESETS'),
+        const SizedBox(height: 22),
+        const _Kicker('情境模式'),
         const SizedBox(height: 10),
         _PresetRow(
           selected: _scene,
@@ -548,6 +782,99 @@ class _HomePageState extends State<HomePage> {
       ],
     );
   }
+}
+
+class _TodaySensorCard extends StatelessWidget {
+  const _TodaySensorCard({required this.readings, required this.onRefresh});
+  final List<SensorReading>? readings;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final latest = readings?.isNotEmpty == true ? readings!.first : null;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.wb_sunny_outlined,
+                color: AppColors.text,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  '今日環境',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+              IconButton(
+                onPressed: onRefresh,
+                tooltip: '重新整理',
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          if (readings == null)
+            const LinearProgressIndicator()
+          else if (latest == null)
+            const Text('目前沒有溫濕度資料')
+          else
+            Row(
+              children: [
+                const Icon(
+                  Icons.thermostat_rounded,
+                  color: AppColors.red,
+                  size: 22,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${latest.temperature.toStringAsFixed(1)}°',
+                  style: const TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 18),
+                const Icon(
+                  Icons.water_drop_outlined,
+                  color: AppColors.blue,
+                  size: 22,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${latest.humidity.toStringAsFixed(0)}%',
+                  style: const TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  _formatReadingTime(latest.recordedAt),
+                  style: const TextStyle(color: AppColors.muted, fontSize: 11),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+String _formatReadingTime(String value) {
+  final date = DateTime.tryParse(value)?.toLocal();
+  if (date == null) return value;
+  return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')} 更新';
 }
 
 class _BrandMark extends StatelessWidget {
@@ -581,9 +908,15 @@ class _CameraPlaceholder extends StatelessWidget {
         children: [
           Icon(Icons.videocam_off_outlined, color: Color(0xFF91A5AF), size: 42),
           SizedBox(height: 12),
-          Text('監視器尚未連線', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+          Text(
+            '監視器尚未連線',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+          ),
           SizedBox(height: 4),
-          Text('串流設定完成後會顯示即時畫面', style: TextStyle(color: Color(0xFF91A5AF), fontSize: 12)),
+          Text(
+            '串流設定完成後會顯示即時畫面',
+            style: TextStyle(color: Color(0xFF91A5AF), fontSize: 12),
+          ),
         ],
       ),
     ),
@@ -601,305 +934,6 @@ class _Kicker extends StatelessWidget {
       fontWeight: FontWeight.w800,
       fontSize: 12,
       letterSpacing: 1.6,
-    ),
-  );
-}
-
-class _LiveView extends StatelessWidget {
-  const _LiveView({required this.state});
-  final DemoState state;
-  @override
-  Widget build(BuildContext context) {
-    final connected = state == DemoState.ready || state == DemoState.loading;
-    final status = switch (state) {
-      DemoState.ready => ('LIVE', '客廳即時狀態', AppColors.green),
-      DemoState.loading => ('SYNC', '正在讀取設備資訊', AppColors.blue),
-      DemoState.offline => ('OFFLINE', '樹莓派尚未連線', AppColors.red),
-      DemoState.failure => ('RETRY', '上一個指令未完成', AppColors.red),
-      DemoState.empty => ('SETUP', '尚未設定設備', AppColors.amber),
-    };
-    return AspectRatio(
-      aspectRatio: 1.55,
-      child: Container(
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: const Color(0xFF101417),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: connected ? const Color(0xFF31505D) : AppColors.line,
-          ),
-        ),
-        child: Stack(
-          children: [
-            Positioned.fill(child: CustomPaint(painter: _GridPainter())),
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withValues(alpha: .82),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const Center(
-              child: Icon(
-                Icons.videocam_outlined,
-                size: 58,
-                color: Color(0xFF4B656E),
-              ),
-            ),
-            Positioned(
-              top: 14,
-              left: 14,
-              child: _LiveBadge(label: status.$1, color: status.$3),
-            ),
-            const Positioned(
-              top: 17,
-              right: 14,
-              child: Text(
-                '4K  •  DEMO',
-                style: TextStyle(
-                  fontSize: 11,
-                  letterSpacing: 1.2,
-                  color: AppColors.muted,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 15,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          status.$2,
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          connected
-                              ? 'Raspberry Pi 4  •  最後更新：剛剛'
-                              : '開啟設定以建立設備連線',
-                          style: const TextStyle(
-                            color: AppColors.muted,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Icon(
-                    connected ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-                    color: status.$3,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LiveBadge extends StatelessWidget {
-  const _LiveBadge({required this.label, required this.color});
-  final String label;
-  final Color color;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-    decoration: BoxDecoration(
-      color: Colors.black.withValues(alpha: .6),
-      borderRadius: BorderRadius.circular(6),
-      border: Border.all(color: color.withValues(alpha: .8)),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(Icons.circle, size: 7, color: color),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 11,
-            letterSpacing: 1.1,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-class _GridPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0xFF2A3A41)
-      ..strokeWidth = 1;
-    for (var x = 0.0; x < size.width; x += size.width / 5) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-    for (var y = 0.0; y < size.height; y += size.height / 4) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(CustomPainter oldDelegate) => false;
-}
-
-class _TelemetryStrip extends StatelessWidget {
-  const _TelemetryStrip({required this.state});
-  final DemoState state;
-  @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Expanded(
-        child: _Telemetry(
-          icon: Icons.thermostat_rounded,
-          value: '25.2°',
-          label: '溫度',
-          color: AppColors.red,
-        ),
-      ),
-      const SizedBox(width: 10),
-      Expanded(
-        child: _Telemetry(
-          icon: Icons.water_drop_outlined,
-          value: '61%',
-          label: '濕度',
-          color: AppColors.blue,
-        ),
-      ),
-      const SizedBox(width: 10),
-      Expanded(
-        child: _Telemetry(
-          icon: Icons.bolt_rounded,
-          value: state == DemoState.ready ? 'ON' : '--',
-          label: '系統',
-          color: AppColors.green,
-        ),
-      ),
-    ],
-  );
-}
-
-class _Telemetry extends StatelessWidget {
-  const _Telemetry({
-    required this.icon,
-    required this.value,
-    required this.label,
-    required this.color,
-  });
-  final IconData icon;
-  final String value, label;
-  final Color color;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: AppColors.line),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, color: color, size: 20),
-        const SizedBox(height: 12),
-        Text(
-          value,
-          style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: const TextStyle(color: AppColors.muted, fontSize: 12),
-        ),
-      ],
-    ),
-  );
-}
-
-class _RfidEventCard extends StatelessWidget {
-  const _RfidEventCard({required this.onTap});
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => Semantics(
-    button: true,
-    label: '最新刷卡紀錄：小明，刷卡通過，剛剛',
-    child: Material(
-      color: AppColors.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: const BorderSide(color: Color(0xFF236346)),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: const Color(0x1F27D17F),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(
-                  Icons.contactless_rounded,
-                  color: AppColors.green,
-                ),
-              ),
-              const SizedBox(width: 14),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          '刷卡通過',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        SizedBox(width: 8),
-                        _AccessPill('已授權', AppColors.green),
-                      ],
-                    ),
-                    SizedBox(height: 5),
-                    Text(
-                      '小明的卡片  •  前門讀卡機  •  剛剛',
-                      style: TextStyle(color: AppColors.muted, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
-            ],
-          ),
-        ),
-      ),
     ),
   );
 }
@@ -952,7 +986,7 @@ class _MqttLightingConsole extends StatelessWidget {
           LightConnectionStatus.failed => '連線失敗，請確認 Wi-Fi 與 broker',
           LightConnectionStatus.disconnected => '已離線',
         };
-        final statusColor = connected ? AppColors.green : AppColors.amber;
+        final statusColor = connected ? AppColors.blue : AppColors.amber;
         return Card(
           child: Padding(
             padding: const EdgeInsets.all(18),
@@ -966,12 +1000,17 @@ class _MqttLightingConsole extends StatelessWidget {
                     const Expanded(
                       child: Text(
                         '客廳主燈',
-                        style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                     Switch(
                       value: light.on,
-                      onChanged: connected ? (value) => service.setLight(on: value) : null,
+                      onChanged: connected
+                          ? (value) => service.setLight(on: value)
+                          : null,
                     ),
                   ],
                 ),
@@ -990,8 +1029,12 @@ class _MqttLightingConsole extends StatelessWidget {
                         style: TextStyle(color: statusColor, fontSize: 12),
                       ),
                     ),
-                    if (!connected && status != LightConnectionStatus.unconfigured)
-                      TextButton(onPressed: service.connect, child: const Text('重試')),
+                    if (!connected &&
+                        status != LightConnectionStatus.unconfigured)
+                      TextButton(
+                        onPressed: service.connect,
+                        child: const Text('重試'),
+                      ),
                   ],
                 ),
                 const Padding(
@@ -1000,14 +1043,19 @@ class _MqttLightingConsole extends StatelessWidget {
                 ),
                 Row(
                   children: [
-                    const Icon(Icons.brightness_6_outlined, color: AppColors.muted),
+                    const Icon(
+                      Icons.brightness_6_outlined,
+                      color: AppColors.muted,
+                    ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Slider(
                         min: 0,
                         max: 100,
                         value: light.brightness,
-                        onChanged: connected && light.on ? onBrightnessChanged : null,
+                        onChanged: connected && light.on
+                            ? onBrightnessChanged
+                            : null,
                       ),
                     ),
                     SizedBox(
@@ -1032,7 +1080,7 @@ class _MqttLightingConsole extends StatelessWidget {
                         onSelected: connected
                             ? (_) => service.setLight(mode: mode.$1)
                             : null,
-                        selectedColor: AppColors.blue,
+                        selectedColor: AppColors.text,
                         labelStyle: TextStyle(
                           color: light.mode == mode.$1
                               ? Colors.white
@@ -1054,36 +1102,16 @@ class _MqttLightingConsole extends StatelessWidget {
 }
 
 class _QuickControls extends StatelessWidget {
-  const _QuickControls({
-    required this.playing,
-    required this.enabled,
-    required this.onMusic,
-    required this.onPick,
-  });
-  final bool playing, enabled;
-  final VoidCallback onMusic, onPick;
+  const _QuickControls({required this.enabled, required this.onOpenMusic});
+  final bool enabled;
+  final VoidCallback onOpenMusic;
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Expanded(
-        child: _QuickButton(
-          icon: playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-          label: playing ? '暫停音樂' : '播放音樂',
-          primary: true,
-          enabled: enabled,
-          onTap: onMusic,
-        ),
-      ),
-      const SizedBox(width: 10),
-      Expanded(
-        child: _QuickButton(
-          icon: Icons.library_music_outlined,
-          label: '選擇音樂',
-          enabled: enabled,
-          onTap: onPick,
-        ),
-      ),
-    ],
+  Widget build(BuildContext context) => _QuickButton(
+    icon: Icons.play_circle_outline_rounded,
+    label: '進入音樂模式',
+    primary: true,
+    enabled: enabled,
+    onTap: onOpenMusic,
   );
 }
 
@@ -1103,10 +1131,10 @@ class _QuickButton extends StatelessWidget {
   Widget build(BuildContext context) => SizedBox(
     height: 74,
     child: Material(
-      color: primary ? AppColors.blue : AppColors.surface,
+      color: primary ? AppColors.text : AppColors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: primary ? AppColors.blue : AppColors.line),
+        side: BorderSide(color: primary ? AppColors.text : AppColors.line),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
@@ -1125,6 +1153,154 @@ class _QuickButton extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _MusicModePage extends StatefulWidget {
+  const _MusicModePage();
+
+  @override
+  State<_MusicModePage> createState() => _MusicModePageState();
+}
+
+class _MusicModePageState extends State<_MusicModePage> {
+  bool _openingYouTube = false;
+
+  Future<void> _openYouTube() async {
+    setState(() => _openingYouTube = true);
+    var opened = false;
+    try {
+      opened = await launchUrl(
+        Uri.parse('https://www.youtube.com/'),
+        mode: LaunchMode.externalNonBrowserApplication,
+      );
+      if (!opened) {
+        opened = await launchUrl(
+          Uri.parse('https://www.youtube.com/'),
+          mode: LaunchMode.inAppBrowserView,
+          browserConfiguration: const BrowserConfiguration(showTitle: true),
+        );
+      }
+    } catch (_) {
+      opened = false;
+    }
+    if (!mounted) return;
+    setState(() => _openingYouTube = false);
+    if (!opened) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('無法開啟 YouTube，請確認網路與瀏覽器後再試一次。')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('音樂模式')),
+    body: SafeArea(
+      top: false,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: const BoxDecoration(
+                  color: AppColors.selectionSoft,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.music_note_rounded,
+                  color: AppColors.text,
+                  size: 30,
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                '想聽什麼？',
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '在 YouTube 搜尋影片、切換音樂與管理播放清單。播放會由手機上的官方 YouTube App 處理。',
+                style: TextStyle(color: AppColors.muted, height: 1.5),
+              ),
+              const SizedBox(height: 28),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(
+                            Icons.play_circle_fill_rounded,
+                            color: AppColors.red,
+                            size: 40,
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'YouTube',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  '優先開啟 App，失敗時改用安全瀏覽器',
+                                  style: TextStyle(
+                                    color: AppColors.muted,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _openingYouTube ? null : _openYouTube,
+                          icon: _openingYouTube
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.open_in_new_rounded),
+                          label: Text(_openingYouTube ? '正在開啟…' : '開啟 YouTube'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                '完成選歌後，使用手機返回鍵即可回到家庭控制。',
+                style: TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 13,
+                  height: 1.45,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     ),
@@ -1162,7 +1338,7 @@ class _PresetRow extends StatelessWidget {
             label: Text(preset.$1),
             selected: selected == preset.$1,
             onSelected: enabled ? (_) => onSelect(preset.$1) : null,
-            selectedColor: AppColors.blue,
+            selectedColor: AppColors.text,
             backgroundColor: AppColors.surface,
             side: const BorderSide(color: AppColors.line),
             labelStyle: TextStyle(
@@ -1201,102 +1377,101 @@ class _LegacyHistoryPageState extends State<_LegacyHistoryPage> {
   Widget build(BuildContext context) {
     final latest = _readings?.isNotEmpty == true ? _readings!.first : null;
     return _DarkPage(
-    title: '活動紀錄',
-    subtitle: '感測器與門禁事件  •  最近 24 小時',
-    child: Column(
-      children: [
-        _SensorSummary(latest: latest, onRefresh: _load),
-        const SizedBox(height: 14),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '環境變化',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  '溫度與濕度的展示歷史資料',
-                  style: TextStyle(color: AppColors.muted, fontSize: 13),
-                ),
-                const SizedBox(height: 26),
-                SizedBox(
-                  height: 190,
-                  width: double.infinity,
-                  child: CustomPaint(painter: _ChartPainter()),
-                ),
-                const SizedBox(height: 8),
-                const Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      '00:00',
-                      style: TextStyle(color: AppColors.muted, fontSize: 11),
-                    ),
-                    Text(
-                      '06:00',
-                      style: TextStyle(color: AppColors.muted, fontSize: 11),
-                    ),
-                    Text(
-                      '12:00',
-                      style: TextStyle(color: AppColors.muted, fontSize: 11),
-                    ),
-                    Text(
-                      '現在',
-                      style: TextStyle(color: AppColors.muted, fontSize: 11),
-                    ),
-                  ],
-                ),
-              ],
+      title: '活動紀錄',
+      subtitle: '感測器與門禁事件  •  最近 24 小時',
+      child: Column(
+        children: [
+          _SensorSummary(latest: latest, onRefresh: _load),
+          const SizedBox(height: 14),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '環境變化',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    '溫度與濕度的展示歷史資料',
+                    style: TextStyle(color: AppColors.muted, fontSize: 13),
+                  ),
+                  const SizedBox(height: 26),
+                  SizedBox(
+                    height: 190,
+                    width: double.infinity,
+                    child: CustomPaint(painter: _ChartPainter()),
+                  ),
+                  const SizedBox(height: 8),
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        '00:00',
+                        style: TextStyle(color: AppColors.muted, fontSize: 11),
+                      ),
+                      Text(
+                        '06:00',
+                        style: TextStyle(color: AppColors.muted, fontSize: 11),
+                      ),
+                      Text(
+                        '12:00',
+                        style: TextStyle(color: AppColors.muted, fontSize: 11),
+                      ),
+                      Text(
+                        '現在',
+                        style: TextStyle(color: AppColors.muted, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 14),
-        const _ActivityRow(
-          icon: Icons.thermostat_rounded,
-          color: AppColors.red,
-          title: '最高溫度',
-          value: '26.1°C',
-        ),
-        const SizedBox(height: 10),
-        const _ActivityRow(
-          icon: Icons.water_drop_outlined,
-          color: AppColors.blue,
-          title: '平均濕度',
-          value: '59%',
-        ),
-        const SizedBox(height: 28),
-        const Align(
-          alignment: Alignment.centerLeft,
-          child: _Kicker('RFID ACCESS LOG'),
-        ),
-        const SizedBox(height: 10),
-        const _RfidLogItem(
-          name: '小明的卡片',
-          detail: '前門讀卡機',
-          time: '剛剛',
-          granted: true,
-        ),
-        const _RfidLogItem(
-          name: '訪客卡',
-          detail: '前門讀卡機',
-          time: '今天 09:42',
-          granted: true,
-        ),
-        const _RfidLogItem(
-          name: '未知卡片  •  UID 4A:82:XX',
-          detail: '前門讀卡機',
-          time: '昨天 21:17',
-          granted: false,
-        ),
-      ],
-    ),
-  );
-}
-
+          const SizedBox(height: 14),
+          const _ActivityRow(
+            icon: Icons.thermostat_rounded,
+            color: AppColors.red,
+            title: '最高溫度',
+            value: '26.1°C',
+          ),
+          const SizedBox(height: 10),
+          const _ActivityRow(
+            icon: Icons.water_drop_outlined,
+            color: AppColors.blue,
+            title: '平均濕度',
+            value: '59%',
+          ),
+          const SizedBox(height: 28),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: _Kicker('RFID ACCESS LOG'),
+          ),
+          const SizedBox(height: 10),
+          const _RfidLogItem(
+            name: '小明的卡片',
+            detail: '前門讀卡機',
+            time: '剛剛',
+            granted: true,
+          ),
+          const _RfidLogItem(
+            name: '訪客卡',
+            detail: '前門讀卡機',
+            time: '今天 09:42',
+            granted: true,
+          ),
+          const _RfidLogItem(
+            name: '未知卡片  •  UID 4A:82:XX',
+            detail: '前門讀卡機',
+            time: '昨天 21:17',
+            granted: false,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _SensorSummary extends StatelessWidget {
@@ -1309,21 +1484,46 @@ class _SensorSummary extends StatelessWidget {
     child: Padding(
       padding: const EdgeInsets.all(16),
       child: latest == null
-          ? Row(children: [
-              const Expanded(child: Text('尚未收到溫濕度資料，請確認 Pi 的 DHT11 服務與 FastAPI。')),
-              IconButton(onPressed: onRefresh, icon: const Icon(Icons.refresh_rounded)),
-            ])
-          : Row(children: [
-              const Icon(Icons.thermostat_rounded, color: AppColors.red),
-              const SizedBox(width: 8),
-              Text('${latest!.temperature.toStringAsFixed(1)}°C', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-              const SizedBox(width: 20),
-              const Icon(Icons.water_drop_outlined, color: AppColors.blue),
-              const SizedBox(width: 8),
-              Text('${latest!.humidity.toStringAsFixed(0)}%', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-              const Spacer(),
-              IconButton(onPressed: onRefresh, tooltip: '重新整理', icon: const Icon(Icons.refresh_rounded)),
-            ]),
+          ? Row(
+              children: [
+                const Expanded(
+                  child: Text('尚未收到溫濕度資料，請確認 Pi 的 DHT11 服務與 FastAPI。'),
+                ),
+                IconButton(
+                  onPressed: onRefresh,
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                const Icon(Icons.thermostat_rounded, color: AppColors.red),
+                const SizedBox(width: 8),
+                Text(
+                  '${latest!.temperature.toStringAsFixed(1)}°C',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(width: 20),
+                const Icon(Icons.water_drop_outlined, color: AppColors.blue),
+                const SizedBox(width: 8),
+                Text(
+                  '${latest!.humidity.toStringAsFixed(0)}%',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: onRefresh,
+                  tooltip: '重新整理',
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ],
+            ),
     ),
   );
 }
@@ -1339,7 +1539,7 @@ class _RfidLogItem extends StatelessWidget {
   final bool granted;
   @override
   Widget build(BuildContext context) {
-    final color = granted ? AppColors.green : AppColors.red;
+    final color = granted ? AppColors.blue : AppColors.red;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(16),
@@ -1453,36 +1653,111 @@ class AutomationPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => _DarkPage(
     title: '自動化',
-    subtitle: '依照即時感測數據建立動作',
-    child: Card(
-      child: Padding(
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          children: [
-            const Icon(Icons.bolt_rounded, size: 42, color: AppColors.blue),
-            const SizedBox(height: 14),
-            const Text(
-              '尚未建立自動化',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 7),
-            const Text(
-              '完成樹莓派連線後，可設定溫溼度與情境觸發條件。',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.muted),
-            ),
-            const SizedBox(height: 18),
-            FilledButton(
-              onPressed: () {},
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.blue,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('建立第一個規則'),
-            ),
-          ],
+    subtitle: '讓家依照你的習慣自動運作',
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _PageSectionLabel('推薦捷徑'),
+        const SizedBox(height: 10),
+        const _AutomationSuggestion(
+          icon: Icons.light_mode_outlined,
+          title: '回家開燈',
+          detail: '日落後回家時自動亮燈',
         ),
+        const SizedBox(height: 10),
+        const _AutomationSuggestion(
+          icon: Icons.thermostat_outlined,
+          title: '舒適環境',
+          detail: '溫溼度超出範圍時提醒你',
+        ),
+        const SizedBox(height: 24),
+        const _PageSectionLabel('我的規則'),
+        const SizedBox(height: 10),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: const BoxDecoration(
+                    color: AppColors.selectionSoft,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.bolt_rounded, color: AppColors.text),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  '還沒有自動化規則',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  '建立一個觸發條件，讓家開始替你完成日常小事。',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.muted, height: 1.45),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () {},
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('建立規則'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _PageSectionLabel extends StatelessWidget {
+  const _PageSectionLabel(this.text);
+  final String text;
+  @override
+  Widget build(BuildContext context) => Text(
+    text.toUpperCase(),
+    style: const TextStyle(
+      color: AppColors.muted,
+      fontSize: 12,
+      fontWeight: FontWeight.w800,
+      letterSpacing: 0.7,
+    ),
+  );
+}
+
+class _AutomationSuggestion extends StatelessWidget {
+  const _AutomationSuggestion({
+    required this.icon,
+    required this.title,
+    required this.detail,
+  });
+  final IconData icon;
+  final String title, detail;
+  @override
+  Widget build(BuildContext context) => Card(
+    child: ListTile(
+      minVerticalPadding: 12,
+      leading: Container(
+        width: 42,
+        height: 42,
+        decoration: const BoxDecoration(
+          color: AppColors.selectionSoft,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: AppColors.text),
       ),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+      subtitle: Text(
+        detail,
+        style: const TextStyle(color: AppColors.muted, fontSize: 12),
+      ),
+      trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
     ),
   );
 }
@@ -1501,48 +1776,88 @@ class SettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _DarkPage(
-    title: '連線設定',
-    subtitle: '樹莓派與設備來源',
+    title: '設定',
+    subtitle: '管理家庭、設備與連線',
     child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        const _PageSectionLabel('家庭'),
+        const SizedBox(height: 10),
         _SettingsActionRow(
           icon: Icons.groups_2_rounded,
-          color: AppColors.blue,
+          color: AppColors.text,
           title: '家庭成員',
-          subtitle: '新增成員並選擇專屬頭像',
+          subtitle: '管理成員與 RFID 卡片',
           onTap: onMembers,
         ),
+        const SizedBox(height: 24),
+        const _PageSectionLabel('裝置與連線'),
         const SizedBox(height: 10),
-        _ActivityRow(
-          icon: Icons.memory_rounded,
-          color: AppColors.green,
-          title: 'Raspberry Pi 4',
-          value: host,
-        ),
-        const SizedBox(height: 10),
-        const _ActivityRow(
-          icon: Icons.wifi_outlined,
-          color: AppColors.blue,
-          title: '網路連線',
-          value: 'MQTT 已設定',
-        ),
-        const SizedBox(height: 10),
-        const _ActivityRow(
-          icon: Icons.info_outline_rounded,
-          color: AppColors.muted,
-          title: 'App 版本',
-          value: '1.0.0',
-        ),
+        _SettingsInfoGroup(host: host),
         const SizedBox(height: 24),
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
             onPressed: onEdit,
-            icon: const Icon(Icons.edit_outlined),
+            icon: const Icon(Icons.tune_rounded),
             label: const Text('修改 MQTT 連線設定'),
           ),
         ),
       ],
+    ),
+  );
+}
+
+class _SettingsInfoGroup extends StatelessWidget {
+  const _SettingsInfoGroup({required this.host});
+  final String host;
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Column(
+      children: [
+        _SettingsInfoRow(
+          icon: Icons.memory_rounded,
+          title: 'Raspberry Pi',
+          value: host,
+        ),
+        const Divider(height: 1, indent: 64),
+        const _SettingsInfoRow(
+          icon: Icons.wifi_rounded,
+          title: 'MQTT 連線',
+          value: '已設定',
+        ),
+        const Divider(height: 1, indent: 64),
+        const _SettingsInfoRow(
+          icon: Icons.info_outline_rounded,
+          title: 'App 版本',
+          value: '1.0.0',
+        ),
+      ],
+    ),
+  );
+}
+
+class _SettingsInfoRow extends StatelessWidget {
+  const _SettingsInfoRow({
+    required this.icon,
+    required this.title,
+    required this.value,
+  });
+  final IconData icon;
+  final String title, value;
+  @override
+  Widget build(BuildContext context) => ListTile(
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+    leading: Icon(icon, color: AppColors.muted),
+    title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+    trailing: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 132),
+      child: Text(
+        value,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.end,
+        style: const TextStyle(color: AppColors.muted, fontSize: 13),
+      ),
     ),
   );
 }
@@ -1563,7 +1878,7 @@ class _SettingsActionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Material(
     color: AppColors.surface,
-    borderRadius: BorderRadius.circular(14),
+    borderRadius: BorderRadius.circular(20),
     child: InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
@@ -1571,7 +1886,7 @@ class _SettingsActionRow extends StatelessWidget {
         constraints: const BoxConstraints(minHeight: 72),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(color: AppColors.line),
         ),
         child: Row(
@@ -1582,9 +1897,18 @@ class _SettingsActionRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+                  Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
                   const SizedBox(height: 3),
-                  Text(subtitle, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 12,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1606,15 +1930,19 @@ class _DarkPage extends StatelessWidget {
   final Widget child;
   @override
   Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(20, 28, 20, 32),
+    padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
     children: [
       Text(
         title,
-        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+        style: const TextStyle(
+          fontSize: 28,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.5,
+        ),
       ),
       const SizedBox(height: 6),
       Text(subtitle, style: const TextStyle(color: AppColors.muted)),
-      const SizedBox(height: 26),
+      const SizedBox(height: 22),
       child,
     ],
   );

@@ -19,10 +19,10 @@ class HouseApi {
   const HouseApi(this._settings);
   final MqttSettings _settings;
 
-  Future<List<SensorReading>> sensorHistory() async {
+  Future<List<SensorReading>> sensorHistory({int limit = 48}) async {
     final client = HttpClient();
     try {
-      final request = await client.getUrl(Uri.parse('http://${_settings.host}:8000/dht11/readings?limit=48'));
+      final request = await client.getUrl(Uri.parse('http://${_settings.host}:8000/dht11/readings?limit=$limit'));
       final response = await request.close().timeout(const Duration(seconds: 4));
       if (response.statusCode != HttpStatus.ok) return [];
       final decoded = jsonDecode(await response.transform(utf8.decoder).join());

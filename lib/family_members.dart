@@ -212,7 +212,7 @@ class _EmptyFamilyMembers extends StatelessWidget {
         children: [
           const _AvatarBadge(avatarId: 'home', size: 96),
           const SizedBox(height: 24),
-          const Text('建立你的家庭', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+          const Text('建立你的家庭', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           const Text(
             '每位成員都能用自己的名稱與專屬頭像。',
@@ -241,7 +241,7 @@ class _MemberCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
-    borderRadius: BorderRadius.circular(16),
+    borderRadius: BorderRadius.circular(20),
     child: Card(
     child: Padding(
       padding: const EdgeInsets.all(16),
@@ -256,12 +256,16 @@ class _MemberCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
           ),
-          const SizedBox(height: 4),
-          Text(
-            card == null ? '尚未綁定卡片' : '已綁定卡片',
-            style: TextStyle(fontSize: 12, color: card == null ? AppColors.muted : AppColors.green),
-          ),
           const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: card == null ? AppColors.surfaceRaised : AppColors.selectionSoft,
+              borderRadius: BorderRadius.circular(99),
+            ),
+            child: Text(card == null ? '尚未綁定' : 'RFID 已啟用', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: card == null ? AppColors.muted : AppColors.text)),
+          ),
+          const SizedBox(height: 12),
           OutlinedButton.icon(
             onPressed: onBind,
             icon: const Icon(Icons.nfc_rounded, size: 18),
@@ -318,7 +322,7 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('新增家庭成員', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+            const Text('新增家庭成員', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
             const SizedBox(height: 6),
             const Text('輸入名稱，並選一個喜歡的預設頭像。', style: TextStyle(color: AppColors.muted)),
             const SizedBox(height: 20),
@@ -362,7 +366,7 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: selected ? AppColors.blue : Colors.transparent,
+                          color: selected ? AppColors.text : Colors.transparent,
                           width: 3,
                         ),
                       ),

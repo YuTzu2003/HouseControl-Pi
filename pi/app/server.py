@@ -75,7 +75,7 @@ def recording(name: str):
     file = RECORDINGS_DIR / Path(name).name
     if file.suffix != ".mp4" or not file.is_file():
         raise HTTPException(status_code=404, detail="Recording not found")
-    return FileResponse(file, media_type="video/mp4", filename=file.name)
+    return FileResponse(file, media_type="video/mp4")
 
 
 @app.get("/rfid/cards", response_model=list[Card])

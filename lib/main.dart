@@ -909,7 +909,7 @@ class _LiveCameraCardState extends State<_LiveCameraCard> {
   @override
   void initState() {
     super.initState();
-    _refresh = Timer.periodic(const Duration(milliseconds: 300), (_) {
+    _refresh = Timer.periodic(const Duration(milliseconds: 800), (_) {
       if (mounted) setState(() => _frame++);
     });
   }
@@ -934,6 +934,7 @@ class _LiveCameraCardState extends State<_LiveCameraCard> {
             Image.network(
               url,
               fit: BoxFit.cover,
+              gaplessPlayback: true,
               errorBuilder: (_, _, _) => const ColoredBox(
                 color: Color(0xFF101417),
                 child: Center(
@@ -1000,6 +1001,7 @@ class _CameraPlaybackPageState extends State<_CameraPlaybackPage> {
   List<CameraRecording>? _recordings;
   VideoPlayerController? _player;
   String? _playing;
+  String? _playerError;
 
   @override
   void initState() {
@@ -1026,15 +1028,18 @@ class _CameraPlaybackPageState extends State<_CameraPlaybackPage> {
     setState(() {
       _player = player;
       _playing = recording.name;
+      _playerError = null;
     });
     await previous?.dispose();
     try {
       await player.initialize();
       await player.play();
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('無法載入這段影片。')));
+        setState(() {
+          _playerError = error.toString();
+          _playing = null;
+        });
       }
     }
     if (mounted) setState(() {});
@@ -1082,6 +1087,19 @@ class _CameraPlaybackPageState extends State<_CameraPlaybackPage> {
                     ),
                   ),
                   const SizedBox(height: 18),
+                ],
+                if (_playerError != null) ...[
+                  Card(
+                    color: AppColors.surfaceRaised,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        '載入失敗：$_playerError',
+                        style: const TextStyle(color: AppColors.red),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                 ],
                 const Text(
                   '最近片段',
@@ -1369,6 +1387,7 @@ class _MusicModePage extends StatefulWidget {
 class _MusicModePageState extends State<_MusicModePage> {
   bool _openingYouTube = false;
   bool _sendingToSpeaker = false;
+  bool _stoppingSpeaker = false;
   final _videoUrl = TextEditingController();
 
   @override
@@ -1391,6 +1410,20 @@ class _MusicModePageState extends State<_MusicModePage> {
     setState(() => _sendingToSpeaker = false);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(sent ? '已傳送給樹莓派嗇叭播放。' : '無法傳送給樹莓派，請確認 MQTT 連線。')),
+    );
+  }
+
+  Future<void> _stopSpeaker() async {
+    setState(() => _stoppingSpeaker = true);
+    final sent = await MqttMusicService(widget.settings).stop();
+    if (!mounted) return;
+    setState(() => _stoppingSpeaker = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          sent ? '已要求樹莓派停止播放。' : '無法傳送停止指令，請確認 MQTT 連線。',
+        ),
+      ),
     );
   }
 
@@ -1550,6 +1583,15 @@ class _MusicModePageState extends State<_MusicModePage> {
                           onPressed: _sendingToSpeaker ? null : _playOnSpeaker,
                           icon: const Icon(Icons.speaker_rounded),
                           label: Text(_sendingToSpeaker ? '正在傳送…' : '用樹莓派嗇叭播放'),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _stoppingSpeaker ? null : _stopSpeaker,
+                          icon: const Icon(Icons.stop_circle_outlined),
+                          label: Text(_stoppingSpeaker ? '正在停止…' : '停止樹莓派播放'),
                         ),
                       ),
                     ],

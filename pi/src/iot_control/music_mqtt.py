@@ -27,7 +27,6 @@ class MusicService:
                 ["mpv", "--no-video", "--force-window=no", url],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
             )
             self.publish({"state": "playing", "url": url})
         except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError, FileNotFoundError) as error:

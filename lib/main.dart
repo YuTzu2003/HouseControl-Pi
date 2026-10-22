@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
 
 import 'family_members.dart';
 import 'house_api.dart';
 import 'history_page.dart';
 import 'mqtt_light_service.dart';
+import 'mqtt_music_service.dart';
 import 'mqtt_rfid_service.dart';
 import 'mqtt_settings.dart';
 
@@ -26,6 +28,7 @@ class AppColors {
   static const selection = Color(0xFFE7E7EC);
   static const selectionSoft = Color(0xFFF0F0F3);
   static const blue = Color(0xFF3478F6);
+  static const green = Color(0xFF2E7D32);
   static const red = Color(0xFFE04F4F);
   static const amber = Color(0xFFB87916);
 }
@@ -501,16 +504,9 @@ class _MainShellState extends State<MainShell> {
     _pages = [
       HomePage(settings: widget.settings, autoConnect: widget.autoConnect),
       HistoryPage(settings: widget.settings),
-      const AutomationPage(),
-      SettingsPage(
-        host: widget.settings.host,
-        onEdit: widget.onEditSettings,
-        onMembers: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => FamilyMembersPage(settings: widget.settings),
-          ),
-        ),
-      ),
+      AutomationPage(settings: widget.settings),
+      FamilyMembersPage(settings: widget.settings),
+      SettingsPage(host: widget.settings.host, onEdit: widget.onEditSettings),
     ];
   }
 
@@ -536,6 +532,11 @@ class _MainShellState extends State<MainShell> {
           icon: Icon(Icons.bolt_outlined),
           selectedIcon: Icon(Icons.bolt),
           label: '自動化',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.groups_2_outlined),
+          selectedIcon: Icon(Icons.groups_2),
+          label: '家庭',
         ),
         NavigationDestination(
           icon: Icon(Icons.tune_outlined),
@@ -737,7 +738,7 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
         const SizedBox(height: 18),
-        const _CameraPlaceholder(),
+        _LiveCameraCard(settings: widget.settings),
         const SizedBox(height: 22),
         _TodaySensorCard(
           readings: _todayReadings,
@@ -768,7 +769,9 @@ class _HomePageState extends State<HomePage> {
         _QuickControls(
           enabled: _canControl,
           onOpenMusic: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const _MusicModePage()),
+            MaterialPageRoute<void>(
+              builder: (_) => _MusicModePage(settings: widget.settings),
+            ),
           ),
         ),
         const SizedBox(height: 22),
@@ -891,36 +894,232 @@ class _BrandMark extends StatelessWidget {
   );
 }
 
-class _CameraPlaceholder extends StatelessWidget {
-  const _CameraPlaceholder();
+class _LiveCameraCard extends StatefulWidget {
+  const _LiveCameraCard({required this.settings});
+  final MqttSettings settings;
 
   @override
-  Widget build(BuildContext context) => AspectRatio(
-    aspectRatio: 1.55,
-    child: Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF101417),
+  State<_LiveCameraCard> createState() => _LiveCameraCardState();
+}
+
+class _LiveCameraCardState extends State<_LiveCameraCard> {
+  Timer? _refresh;
+  int _frame = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh = Timer.periodic(const Duration(milliseconds: 300), (_) {
+      if (mounted) setState(() => _frame++);
+    });
+  }
+
+  @override
+  void dispose() {
+    _refresh?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final url =
+        'http://${widget.settings.host}:8000/camera/live.jpg?frame=$_frame';
+    return AspectRatio(
+      aspectRatio: 1.55,
+      child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFF31505D)),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.network(
+              url,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => const ColoredBox(
+                color: Color(0xFF101417),
+                child: Center(
+                  child: Text(
+                    '等待樹莓派攝影機啟動',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ),
+            ),
+            const Positioned(top: 12, left: 12, child: _LiveBadge()),
+            Positioned(
+              top: 6,
+              right: 6,
+              child: TextButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) =>
+                        _CameraPlaybackPage(settings: widget.settings),
+                  ),
+                ),
+                icon: const Icon(Icons.history_rounded, size: 18),
+                label: const Text('回放'),
+                style: TextButton.styleFrom(foregroundColor: Colors.white),
+              ),
+            ),
+          ],
+        ),
       ),
-      child: const Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.videocam_off_outlined, color: Color(0xFF91A5AF), size: 42),
-          SizedBox(height: 12),
-          Text(
-            '監視器尚未連線',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
-          ),
-          SizedBox(height: 4),
-          Text(
-            '串流設定完成後會顯示即時畫面',
-            style: TextStyle(color: Color(0xFF91A5AF), fontSize: 12),
-          ),
-        ],
+    );
+  }
+}
+
+class _LiveBadge extends StatelessWidget {
+  const _LiveBadge();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: .65),
+      borderRadius: BorderRadius.circular(99),
+    ),
+    child: const Text(
+      'LIVE',
+      style: TextStyle(
+        color: Colors.white,
+        fontSize: 11,
+        fontWeight: FontWeight.w800,
       ),
     ),
   );
+}
+
+class _CameraPlaybackPage extends StatefulWidget {
+  const _CameraPlaybackPage({required this.settings});
+  final MqttSettings settings;
+
+  @override
+  State<_CameraPlaybackPage> createState() => _CameraPlaybackPageState();
+}
+
+class _CameraPlaybackPageState extends State<_CameraPlaybackPage> {
+  List<CameraRecording>? _recordings;
+  VideoPlayerController? _player;
+  String? _playing;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _player?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final recordings = await HouseApi(widget.settings).cameraRecordings();
+    if (mounted) setState(() => _recordings = recordings);
+  }
+
+  Future<void> _play(CameraRecording recording) async {
+    final previous = _player;
+    final player = VideoPlayerController.networkUrl(
+      HouseApi(widget.settings).recordingUrl(recording.name),
+    );
+    setState(() {
+      _player = player;
+      _playing = recording.name;
+    });
+    await previous?.dispose();
+    try {
+      await player.initialize();
+      await player.play();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('無法載入這段影片。')));
+      }
+    }
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final recordings = _recordings;
+    final player = _player;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('攝影機回放'),
+        actions: [
+          IconButton(
+            onPressed: _load,
+            tooltip: '重新整理',
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+      body: recordings == null
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                if (player != null && player.value.isInitialized) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: AspectRatio(
+                      aspectRatio: player.value.aspectRatio,
+                      child: VideoPlayer(player),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Center(
+                    child: IconButton.filled(
+                      onPressed: () => setState(() {
+                        player.value.isPlaying ? player.pause() : player.play();
+                      }),
+                      icon: Icon(
+                        player.value.isPlaying
+                            ? Icons.pause_rounded
+                            : Icons.play_arrow_rounded,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                ],
+                const Text(
+                  '最近片段',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+                if (recordings.isEmpty)
+                  const Card(child: ListTile(title: Text('目前沒有可回放的影片。')))
+                else
+                  for (final recording in recordings)
+                    Card(
+                      child: ListTile(
+                        leading: Icon(
+                          _playing == recording.name
+                              ? Icons.play_circle_filled_rounded
+                              : Icons.play_circle_outline_rounded,
+                        ),
+                        title: Text(_recordingLabel(recording.recordedAt)),
+                        subtitle: Text(_fileSize(recording.size)),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: () => _play(recording),
+                      ),
+                    ),
+              ],
+            ),
+    );
+  }
+
+  String _recordingLabel(String value) {
+    final match = RegExp(r'^(\d{8})T(\d{6})Z$').firstMatch(value);
+    if (match == null) return value;
+    final date = match.group(1)!;
+    final time = match.group(2)!;
+    return '${date.substring(4, 6)}/${date.substring(6, 8)} ${time.substring(0, 2)}:${time.substring(2, 4)}';
+  }
+
+  String _fileSize(int bytes) =>
+      '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
 }
 
 class _Kicker extends StatelessWidget {
@@ -1160,7 +1359,8 @@ class _QuickButton extends StatelessWidget {
 }
 
 class _MusicModePage extends StatefulWidget {
-  const _MusicModePage();
+  const _MusicModePage({required this.settings});
+  final MqttSettings settings;
 
   @override
   State<_MusicModePage> createState() => _MusicModePageState();
@@ -1168,6 +1368,31 @@ class _MusicModePage extends StatefulWidget {
 
 class _MusicModePageState extends State<_MusicModePage> {
   bool _openingYouTube = false;
+  bool _sendingToSpeaker = false;
+  final _videoUrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _videoUrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _playOnSpeaker() async {
+    final url = _videoUrl.text.trim();
+    final host = Uri.tryParse(url)?.host;
+    if (host == null || !(host == 'youtu.be' || host.endsWith('youtube.com'))) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('請貼上完整的 YouTube 影片連結。')));
+      return;
+    }
+    setState(() => _sendingToSpeaker = true);
+    final sent = await MqttMusicService(widget.settings).play(url);
+    if (!mounted) return;
+    setState(() => _sendingToSpeaker = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(sent ? '已傳送給樹莓派嗇叭播放。' : '無法傳送給樹莓派，請確認 MQTT 連線。')),
+    );
+  }
 
   Future<void> _openYouTube() async {
     setState(() => _openingYouTube = true);
@@ -1227,7 +1452,7 @@ class _MusicModePageState extends State<_MusicModePage> {
               ),
               const SizedBox(height: 8),
               const Text(
-                '在 YouTube 搜尋影片、切換音樂與管理播放清單。播放會由手機上的官方 YouTube App 處理。',
+                '想用手機聽可以開啟 YouTube；想由樹莓派嗇叭發聲，請貼上影片連結。',
                 style: TextStyle(color: AppColors.muted, height: 1.5),
               ),
               const SizedBox(height: 28),
@@ -1291,8 +1516,49 @@ class _MusicModePageState extends State<_MusicModePage> {
                 ),
               ),
               const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '樹莓派嗇叭播放',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        '在 YouTube 點選「共享」後複製連結，再貼到這裡。',
+                        style: TextStyle(color: AppColors.muted, height: 1.45),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _videoUrl,
+                        keyboardType: TextInputType.url,
+                        decoration: const InputDecoration(
+                          labelText: 'YouTube 影片連結',
+                          prefixIcon: Icon(Icons.link_rounded),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _sendingToSpeaker ? null : _playOnSpeaker,
+                          icon: const Icon(Icons.speaker_rounded),
+                          label: Text(_sendingToSpeaker ? '正在傳送…' : '用樹莓派嗇叭播放'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
               const Text(
-                '完成選歌後，使用手機返回鍵即可回到家庭控制。',
+                '樹莓派需安裝 mpv 與 yt-dlp，且嗇叭必須是它的預設 ALSA 音訊輸出。',
                 style: TextStyle(
                   color: AppColors.muted,
                   fontSize: 13,
@@ -1648,8 +1914,68 @@ class _ActivityRow extends StatelessWidget {
   );
 }
 
-class AutomationPage extends StatelessWidget {
-  const AutomationPage({super.key});
+class AutomationPage extends StatefulWidget {
+  const AutomationPage({super.key, required this.settings});
+  final MqttSettings settings;
+  @override
+  State<AutomationPage> createState() => _AutomationPageState();
+}
+
+class _AutomationPageState extends State<AutomationPage> {
+  List<AutomationRule>? _rules;
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final rules = await HouseApi(widget.settings).automations();
+    if (mounted) setState(() => _rules = rules);
+  }
+
+  Future<void> _add() async {
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+    );
+    if (time == null) return;
+    if (!mounted) return;
+    final action = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('選擇動作'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'off'),
+            child: const Text('關燈'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, 'on'),
+            child: const Text('開燈'),
+          ),
+        ],
+      ),
+    );
+    if (action == null) return;
+    final value =
+        '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    final ok = await HouseApi(widget.settings).saveAutomation(
+      AutomationRule(
+        id: null,
+        name: '$value${action == 'on' ? ' 開燈' : ' 關燈'}',
+        time: value,
+        days: const [0, 1, 2, 3, 4, 5, 6],
+        action: action,
+        enabled: true,
+      ),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(ok ? '規則已儲存' : '無法連線至樹莓派')));
+    if (ok) _load();
+  }
+
   @override
   Widget build(BuildContext context) => _DarkPage(
     title: '自動化',
@@ -1657,60 +1983,35 @@ class AutomationPage extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _PageSectionLabel('推薦捷徑'),
-        const SizedBox(height: 10),
-        const _AutomationSuggestion(
-          icon: Icons.light_mode_outlined,
-          title: '回家開燈',
-          detail: '日落後回家時自動亮燈',
-        ),
-        const SizedBox(height: 10),
-        const _AutomationSuggestion(
-          icon: Icons.thermostat_outlined,
-          title: '舒適環境',
-          detail: '溫溼度超出範圍時提醒你',
-        ),
-        const SizedBox(height: 24),
         const _PageSectionLabel('我的規則'),
         const SizedBox(height: 10),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              children: [
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: const BoxDecoration(
-                    color: AppColors.selectionSoft,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.bolt_rounded, color: AppColors.text),
+        if (_rules == null)
+          const Center(child: CircularProgressIndicator())
+        else ...[
+          for (final rule in _rules!)
+            Card(
+              child: ListTile(
+                leading: Icon(
+                  rule.action == 'on'
+                      ? Icons.lightbulb_rounded
+                      : Icons.lightbulb_outline_rounded,
                 ),
-                const SizedBox(height: 16),
-                const Text(
-                  '還沒有自動化規則',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                title: Text(rule.name),
+                subtitle: Text(
+                  '每天 ${rule.time} ・ ${rule.action == 'on' ? '開燈' : '關燈'}',
                 ),
-                const SizedBox(height: 6),
-                const Text(
-                  '建立一個觸發條件，讓家開始替你完成日常小事。',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: AppColors.muted, height: 1.45),
-                ),
-                const SizedBox(height: 18),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('建立規則'),
-                  ),
-                ),
-              ],
+              ),
+            ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _add,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('新增每日定時規則'),
             ),
           ),
-        ),
+        ],
       ],
     ),
   );
@@ -1763,16 +2064,10 @@ class _AutomationSuggestion extends StatelessWidget {
 }
 
 class SettingsPage extends StatelessWidget {
-  const SettingsPage({
-    super.key,
-    required this.host,
-    required this.onEdit,
-    required this.onMembers,
-  });
+  const SettingsPage({super.key, required this.host, required this.onEdit});
 
   final String host;
   final VoidCallback onEdit;
-  final VoidCallback onMembers;
 
   @override
   Widget build(BuildContext context) => _DarkPage(
@@ -1781,16 +2076,6 @@ class SettingsPage extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _PageSectionLabel('家庭'),
-        const SizedBox(height: 10),
-        _SettingsActionRow(
-          icon: Icons.groups_2_rounded,
-          color: AppColors.text,
-          title: '家庭成員',
-          subtitle: '管理成員與 RFID 卡片',
-          onTap: onMembers,
-        ),
-        const SizedBox(height: 24),
         const _PageSectionLabel('裝置與連線'),
         const SizedBox(height: 10),
         _SettingsInfoGroup(host: host),
@@ -1857,64 +2142,6 @@ class _SettingsInfoRow extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         textAlign: TextAlign.end,
         style: const TextStyle(color: AppColors.muted, fontSize: 13),
-      ),
-    ),
-  );
-}
-
-class _SettingsActionRow extends StatelessWidget {
-  const _SettingsActionRow({
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-  final IconData icon;
-  final Color color;
-  final String title, subtitle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: AppColors.surface,
-    borderRadius: BorderRadius.circular(20),
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 72),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.line),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: color),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
-          ],
-        ),
       ),
     ),
   );

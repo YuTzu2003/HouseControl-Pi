@@ -1,7 +1,7 @@
 import time
 import RPi.GPIO as GPIO
 
-DHT_PIN = 7 
+DHT_PIN = 7
 
 def read_dht11():
     GPIO.setup(DHT_PIN, GPIO.OUT)
@@ -14,7 +14,6 @@ def read_dht11():
     last_state = GPIO.input(DHT_PIN)
     while time.perf_counter_ns() - start < 10_000_000:
         state = GPIO.input(DHT_PIN)
-
         if state != last_state:
             pulses.append((state, time.perf_counter_ns()))
             last_state = state
@@ -23,42 +22,18 @@ def read_dht11():
         state, timestamp = pulses[i]
         if state == GPIO.HIGH:
             duration_us = (pulses[i + 1][1] - timestamp) / 1000
-
             if 15 < duration_us < 110:
                 bits.append(1 if duration_us > 50 else 0)
-
     if len(bits) == 41:
         bits = bits[1:]
-
     if len(bits) != 40:
         return None
-
     data = []
-
     for i in range(0, 40, 8):
         value = 0
-        for bit in bits[i:i + 8]:
+        for bit in bits[i : i + 8]:
             value = (value << 1) | bit
         data.append(value)
-
-    checksum = sum(data[:4]) & 0xFF
-    if checksum != data[4]:
+    if sum(data[:4]) & 0xFF != data[4]:
         return None
-
-    humidity = data[0] + data[1] / 10
-    temperature = data[2] + data[3] / 10
-    return temperature, humidity
-
-if __name__ == "__main__":
-    GPIO.setwarnings(False)
-    GPIO.setmode(GPIO.BOARD)
-    try:
-        print("開始讀取 DHT11 溫濕度...")
-        while True:
-            result = read_dht11()
-            print(result if result is not None else "error")
-            time.sleep(2)
-    except KeyboardInterrupt:
-        print("\n程式結束")
-    finally:
-        GPIO.cleanup()
+    return data[2] + data[3] / 10, data[0] + data[1] / 10

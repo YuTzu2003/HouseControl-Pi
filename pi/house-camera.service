@@ -1,0 +1,14 @@
+[Unit]
+Description=House Control USB Webcam recorder
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Desktop/IOT_Control
+ExecStart=/home/pi/Desktop/IOT_Control/start_camera.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

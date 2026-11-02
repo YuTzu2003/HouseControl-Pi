@@ -3,12 +3,14 @@ import re
 import time
 import RPi.GPIO as GPIO
 from mfrc522 import SimpleMFRC522
-from house_pi import bind_card, record_access, utc_now
+
+from .house_pi import bind_card, record_access, utc_now
 
 TOPIC_BIND = "house/rfid/bind"
 TOPIC_EVENT = "house/rfid/event"
 TOPIC_STATUS = "house/rfid/status"
 BUZZER_PIN = 12
+
 
 class RFIDService:
     def __init__(self, client):
@@ -28,10 +30,8 @@ class RFIDService:
             member_name = self._text(data.get("member_name"), "member_name")
             if not re.fullmatch(r"[A-Za-z0-9@._:-]+", member_id):
                 raise ValueError("member_id 僅能包含英數字與 @ . _ : -")
-            self.pending_member = {"member_id": member_id, "member_name": member_name,
-                                   "expires_at": time.monotonic() + 60}
-            self.publish(TOPIC_EVENT, {"type": "bind_waiting", "member_id": member_id,
-                "member_name": member_name, "expires_in": 60, "at": utc_now()})
+            self.pending_member = {"member_id": member_id, "member_name": member_name, "expires_at": time.monotonic() + 60}
+            self.publish(TOPIC_EVENT, {"type": "bind_waiting", "member_id": member_id, "member_name": member_name, "expires_in": 60, "at": utc_now()})
         except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
             self.publish(TOPIC_EVENT, {"type": "error", "message": str(error), "at": utc_now()})
 
@@ -56,21 +56,19 @@ class RFIDService:
             member = self.pending_member
             bind_card(uid, member["member_id"], member["member_name"])
             self.pending_member = None
-            self._beep(.25)
-            self.publish(TOPIC_EVENT, {"type": "bound", "uid": uid, "member_id": member["member_id"],
-                "member_name": member["member_name"], "at": now})
+            self._beep(0.25)
+            self.publish(TOPIC_EVENT, {"type": "bound", "uid": uid, "member_id": member["member_id"], "member_name": member["member_name"], "at": now})
             return
         card = record_access(uid)
         if card:
             self._beep()
-            event = {"type": "access_granted", "uid": uid, "member_id": card["member_id"],
-                     "member_name": card["member_name"], "at": now}
+            event = {"type": "access_granted", "uid": uid, "member_id": card["member_id"], "member_name": card["member_name"], "at": now}
         else:
             event = {"type": "access_denied", "uid": uid, "at": now}
         self.publish(TOPIC_EVENT, event)
 
     @staticmethod
-    def _beep(duration=.15):
+    def _beep(duration=0.15):
         GPIO.output(BUZZER_PIN, GPIO.HIGH)
         time.sleep(duration)
         GPIO.output(BUZZER_PIN, GPIO.LOW)

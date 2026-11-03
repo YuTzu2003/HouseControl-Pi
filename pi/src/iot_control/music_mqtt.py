@@ -16,12 +16,20 @@ class MusicService:
         if retained or len(payload) > 2048:
             return
         try:
-            url = json.loads(payload.decode("utf-8"))["url"]
-            if not isinstance(url, str):
-                raise ValueError("請提供 YouTube 影片連結")
-            host = urlparse(url).hostname or ""
-            if host not in {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}:
-                raise ValueError("請提供 YouTube 影片連結")
+            ok, error = self.play_url(json.loads(payload.decode("utf-8"))["url"])
+            if not ok:
+                self.publish({"state": "error", "message": error})
+        except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError, FileNotFoundError) as error:
+            self.publish({"state": "error", "message": str(error)})
+
+    def play_url(self, url):
+        if not isinstance(url, str) or not url.strip():
+            return False, "請提供 YouTube 影片連結"
+        url = url.strip()
+        host = urlparse(url).hostname or ""
+        if host not in {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}:
+            return False, "請提供 YouTube 影片連結"
+        try:
             self.stop()
             self.process = subprocess.Popen(
                 ["mpv", "--no-video", "--force-window=no", url],
@@ -29,9 +37,11 @@ class MusicService:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            self.publish({"state": "playing", "url": url})
-        except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError, FileNotFoundError) as error:
-            self.publish({"state": "error", "message": str(error)})
+        except (FileNotFoundError, OSError) as error:
+            self.process = None
+            return False, str(error)
+        self.publish({"state": "playing", "url": url})
+        return True, None
 
     def handle_stop(self, payload, retained=False):
         if not retained:

@@ -10,6 +10,7 @@ import 'history_page.dart';
 import 'mqtt_light_service.dart';
 import 'mqtt_music_service.dart';
 import 'mqtt_rfid_service.dart';
+import 'mqtt_scene_service.dart';
 import 'mqtt_settings.dart';
 
 Future<void> main() async {
@@ -621,7 +622,13 @@ class _HomePageState extends State<HomePage> {
               color: Colors.white,
             ),
             const SizedBox(width: 10),
-            Expanded(child: Text(known ? '$memberName 刷卡進入' : '警訊：未知的人嘗試刷卡進入')),
+            Expanded(
+              child: Text(
+                known
+                    ? '$memberName 刷卡進入'
+                    : '警訊：陌生卡片嘗試刷卡${event.uid == null ? '' : '（${event.uid}）'}',
+              ),
+            ),
           ],
         ),
       ),
@@ -653,9 +660,9 @@ class _HomePageState extends State<HomePage> {
   void _applyScene(String scene) {
     if (!_canControl) return;
     if (_lightService.status.value != LightConnectionStatus.connected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('燈光尚未連線，請檢查 MQTT 設定與樹莓派連線')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('燈光尚未連線，請檢查 MQTT 設定與樹莓派連線')));
       return;
     }
     _brightnessDebounce?.cancel();
@@ -675,9 +682,8 @@ class _HomePageState extends State<HomePage> {
       default:
         return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已送出「$scene」燈光指令')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('已送出「$scene」燈光指令')));
   }
 
   void _chooseState() => showModalBottomSheet<void>(
@@ -908,20 +914,6 @@ String _formatReadingTime(String value) {
   final date = DateTime.tryParse(value)?.toLocal();
   if (date == null) return value;
   return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')} 更新';
-}
-
-class _BrandMark extends StatelessWidget {
-  const _BrandMark();
-  @override
-  Widget build(BuildContext context) => Container(
-    width: 34,
-    height: 34,
-    decoration: BoxDecoration(
-      color: AppColors.blue,
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: const Icon(Icons.home_rounded, color: Colors.white, size: 22),
-  );
 }
 
 class _LiveCameraCard extends StatefulWidget {
@@ -1185,24 +1177,6 @@ class _Kicker extends StatelessWidget {
   );
 }
 
-class _AccessPill extends StatelessWidget {
-  const _AccessPill(this.label, this.color);
-  final String label;
-  final Color color;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: .14),
-      borderRadius: BorderRadius.circular(6),
-    ),
-    child: Text(
-      label,
-      style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w800),
-    ),
-  );
-}
-
 class _MqttLightingConsole extends StatelessWidget {
   const _MqttLightingConsole({
     required this.service,
@@ -1449,11 +1423,7 @@ class _MusicModePageState extends State<_MusicModePage> {
     if (!mounted) return;
     setState(() => _stoppingSpeaker = false);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          sent ? '已要求樹莓派停止播放。' : '無法傳送停止指令，請確認 MQTT 連線。',
-        ),
-      ),
+      SnackBar(content: Text(sent ? '已要求樹莓派停止播放。' : '無法傳送停止指令，請確認 MQTT 連線。')),
     );
   }
 
@@ -1689,303 +1659,6 @@ class _PresetRow extends StatelessWidget {
   }
 }
 
-class _LegacyHistoryPage extends StatefulWidget {
-  const _LegacyHistoryPage({super.key, required this.settings});
-  final MqttSettings settings;
-
-  @override
-  State<_LegacyHistoryPage> createState() => _LegacyHistoryPageState();
-}
-
-class _LegacyHistoryPageState extends State<_LegacyHistoryPage> {
-  List<SensorReading>? _readings;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final readings = await HouseApi(widget.settings).sensorHistory();
-    if (mounted) setState(() => _readings = readings);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final latest = _readings?.isNotEmpty == true ? _readings!.first : null;
-    return _DarkPage(
-      title: '活動紀錄',
-      subtitle: '感測器與門禁事件  •  最近 24 小時',
-      child: Column(
-        children: [
-          _SensorSummary(latest: latest, onRefresh: _load),
-          const SizedBox(height: 14),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    '環境變化',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    '溫度與濕度的展示歷史資料',
-                    style: TextStyle(color: AppColors.muted, fontSize: 13),
-                  ),
-                  const SizedBox(height: 26),
-                  SizedBox(
-                    height: 190,
-                    width: double.infinity,
-                    child: CustomPaint(painter: _ChartPainter()),
-                  ),
-                  const SizedBox(height: 8),
-                  const Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        '00:00',
-                        style: TextStyle(color: AppColors.muted, fontSize: 11),
-                      ),
-                      Text(
-                        '06:00',
-                        style: TextStyle(color: AppColors.muted, fontSize: 11),
-                      ),
-                      Text(
-                        '12:00',
-                        style: TextStyle(color: AppColors.muted, fontSize: 11),
-                      ),
-                      Text(
-                        '現在',
-                        style: TextStyle(color: AppColors.muted, fontSize: 11),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          const _ActivityRow(
-            icon: Icons.thermostat_rounded,
-            color: AppColors.red,
-            title: '最高溫度',
-            value: '26.1°C',
-          ),
-          const SizedBox(height: 10),
-          const _ActivityRow(
-            icon: Icons.water_drop_outlined,
-            color: AppColors.blue,
-            title: '平均濕度',
-            value: '59%',
-          ),
-          const SizedBox(height: 28),
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: _Kicker('RFID ACCESS LOG'),
-          ),
-          const SizedBox(height: 10),
-          const _RfidLogItem(
-            name: '小明的卡片',
-            detail: '前門讀卡機',
-            time: '剛剛',
-            granted: true,
-          ),
-          const _RfidLogItem(
-            name: '訪客卡',
-            detail: '前門讀卡機',
-            time: '今天 09:42',
-            granted: true,
-          ),
-          const _RfidLogItem(
-            name: '未知卡片  •  UID 4A:82:XX',
-            detail: '前門讀卡機',
-            time: '昨天 21:17',
-            granted: false,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SensorSummary extends StatelessWidget {
-  const _SensorSummary({required this.latest, required this.onRefresh});
-  final SensorReading? latest;
-  final VoidCallback onRefresh;
-
-  @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: latest == null
-          ? Row(
-              children: [
-                const Expanded(
-                  child: Text('尚未收到溫濕度資料，請確認 Pi 的 DHT11 服務與 FastAPI。'),
-                ),
-                IconButton(
-                  onPressed: onRefresh,
-                  icon: const Icon(Icons.refresh_rounded),
-                ),
-              ],
-            )
-          : Row(
-              children: [
-                const Icon(Icons.thermostat_rounded, color: AppColors.red),
-                const SizedBox(width: 8),
-                Text(
-                  '${latest!.temperature.toStringAsFixed(1)}°C',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(width: 20),
-                const Icon(Icons.water_drop_outlined, color: AppColors.blue),
-                const SizedBox(width: 8),
-                Text(
-                  '${latest!.humidity.toStringAsFixed(0)}%',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: onRefresh,
-                  tooltip: '重新整理',
-                  icon: const Icon(Icons.refresh_rounded),
-                ),
-              ],
-            ),
-    ),
-  );
-}
-
-class _RfidLogItem extends StatelessWidget {
-  const _RfidLogItem({
-    required this.name,
-    required this.detail,
-    required this.time,
-    required this.granted,
-  });
-  final String name, detail, time;
-  final bool granted;
-  @override
-  Widget build(BuildContext context) {
-    final color = granted ? AppColors.blue : AppColors.red;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: granted ? AppColors.line : const Color(0xFF753B3B),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            granted ? Icons.verified_user_outlined : Icons.block_rounded,
-            color: color,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 3),
-                Text(
-                  '$detail  •  $time',
-                  style: const TextStyle(color: AppColors.muted, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          _AccessPill(granted ? '通過' : '拒絕', color),
-        ],
-      ),
-    );
-  }
-}
-
-class _ChartPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final grid = Paint()
-      ..color = AppColors.line
-      ..strokeWidth = 1;
-    for (var i = 0; i < 4; i++) {
-      canvas.drawLine(
-        Offset(0, size.height * i / 3),
-        Offset(size.width, size.height * i / 3),
-        grid,
-      );
-    }
-    const values = [.70, .59, .62, .48, .55, .42, .47, .30, .38, .24, .32, .29];
-    final line = Path();
-    for (var i = 0; i < values.length; i++) {
-      final p = Offset(
-        size.width * i / (values.length - 1),
-        size.height * values[i],
-      );
-      i == 0 ? line.moveTo(p.dx, p.dy) : line.lineTo(p.dx, p.dy);
-    }
-    canvas.drawPath(
-      line,
-      Paint()
-        ..color = AppColors.blue
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _ActivityRow extends StatelessWidget {
-  const _ActivityRow({
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.value,
-  });
-  final IconData icon;
-  final Color color;
-  final String title, value;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: AppColors.line),
-    ),
-    child: Row(
-      children: [
-        Icon(icon, color: color),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-        ),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w900)),
-      ],
-    ),
-  );
-}
-
 class AutomationPage extends StatefulWidget {
   const AutomationPage({super.key, required this.settings});
   final MqttSettings settings;
@@ -1995,6 +1668,8 @@ class AutomationPage extends StatefulWidget {
 
 class _AutomationPageState extends State<AutomationPage> {
   List<AutomationRule>? _rules;
+  List<Scene>? _scenes;
+
   @override
   void initState() {
     super.initState();
@@ -2002,89 +1677,817 @@ class _AutomationPageState extends State<AutomationPage> {
   }
 
   Future<void> _load() async {
-    final rules = await HouseApi(widget.settings).automations();
-    if (mounted) setState(() => _rules = rules);
+    final api = HouseApi(widget.settings);
+    final values = await Future.wait([api.automations(), api.scenes()]);
+    if (mounted) {
+      setState(() {
+        _rules = values[0] as List<AutomationRule>;
+        _scenes = values[1] as List<Scene>;
+      });
+    }
   }
 
-  Future<void> _add() async {
-    final time = await showTimePicker(
+  Future<void> _editRule([AutomationRule? rule]) async {
+    final edited = await showModalBottomSheet<AutomationRule>(
       context: context,
-      initialTime: TimeOfDay.now(),
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      showDragHandle: true,
+      builder: (_) =>
+          _AutomationEditor(rule: rule, scenes: _scenes ?? const []),
     );
-    if (time == null) return;
+    if (edited == null) return;
+    final ok = await HouseApi(widget.settings).saveAutomation(edited);
     if (!mounted) return;
-    final action = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('選擇動作'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, 'off'),
-            child: const Text('關燈'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, 'on'),
-            child: const Text('開燈'),
-          ),
-        ],
-      ),
-    );
-    if (action == null) return;
-    final value =
-        '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-    final ok = await HouseApi(widget.settings).saveAutomation(
-      AutomationRule(
-        id: null,
-        name: '$value${action == 'on' ? ' 開燈' : ' 關燈'}',
-        time: value,
-        days: const [0, 1, 2, 3, 4, 5, 6],
-        action: action,
-        enabled: true,
-      ),
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(ok ? '規則已儲存' : '無法連線至樹莓派')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(ok ? '排程已儲存' : '排程儲存失敗，請確認樹莓派 API')));
     if (ok) _load();
   }
+
+  Future<void> _deleteRule(AutomationRule rule) async {
+    if (rule.id == null) return;
+    final confirmed = await _confirm('刪除排程？', '確定要刪除「${rule.name}」嗎？');
+    if (confirmed != true) return;
+    final ok = await HouseApi(widget.settings).deleteAutomation(rule.id!);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(ok ? '排程已刪除' : '排程刪除失敗')));
+    if (ok) _load();
+  }
+
+  Future<void> _toggleRule(AutomationRule rule, bool enabled) async {
+    final ok = await HouseApi(widget.settings)
+        .saveAutomation(_copyRule(rule, enabled: enabled));
+    if (ok) _load();
+  }
+
+  Future<void> _editScene([Scene? scene]) async {
+    final edited = await showModalBottomSheet<Scene>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      showDragHandle: true,
+      builder: (_) => _SceneEditor(scene: scene),
+    );
+    if (edited == null) return;
+    final ok = await HouseApi(widget.settings).saveScene(edited);
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(ok ? '情境已儲存' : '情境儲存失敗，請確認樹莓派 API')));
+    if (ok) _load();
+  }
+
+  Future<void> _deleteScene(Scene scene) async {
+    if (scene.id == null) return;
+    final confirmed = await _confirm('刪除情境？', '確定要刪除「${scene.name}」嗎？');
+    if (confirmed != true) return;
+    final ok = await HouseApi(widget.settings).deleteScene(scene.id!);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(ok ? '情境已刪除' : '情境刪除失敗')));
+    if (ok) _load();
+  }
+
+  Future<void> _toggleScene(Scene scene, bool enabled) async {
+    final ok = await HouseApi(widget.settings).saveScene(
+      Scene(
+        id: scene.id,
+        name: scene.name,
+        actions: scene.actions,
+        enabled: enabled,
+      ),
+    );
+    if (ok) _load();
+  }
+
+  Future<void> _runScene(Scene scene) async {
+    if (scene.id == null) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('正在執行情境「${scene.name}」…')));
+    final result = await MqttSceneService(widget.settings).execute(scene.id!);
+    if (!mounted) return;
+    final message = result == null
+        ? '情境沒有收到樹莓派回覆'
+        : result.ok
+        ? '情境「${scene.name}」已完成'
+        : '情境執行失敗：${result.error ?? _sceneFailureMessage(result)}';
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+    if (result != null) _load();
+  }
+
+  Future<bool?> _confirm(String title, String message) => showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('確認'),
+        ),
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext context) => _DarkPage(
     title: '自動化',
-    subtitle: '讓家依照你的習慣自動運作',
+    subtitle: '排程、星期、燈光設定與情境模式',
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _PageSectionLabel('我的規則'),
+        Row(
+          children: [
+            const Expanded(child: _PageSectionLabel('燈光排程')),
+            IconButton(
+              onPressed: () => _editRule(),
+              icon: const Icon(Icons.add_circle_outline_rounded),
+            ),
+          ],
+        ),
         const SizedBox(height: 10),
         if (_rules == null)
           const Center(child: CircularProgressIndicator())
         else ...[
-          for (final rule in _rules!)
-            Card(
-              child: ListTile(
-                leading: Icon(
-                  rule.action == 'on'
-                      ? Icons.lightbulb_rounded
-                      : Icons.lightbulb_outline_rounded,
-                ),
-                title: Text(rule.name),
-                subtitle: Text(
-                  '每天 ${rule.time} ・ ${rule.action == 'on' ? '開燈' : '關燈'}',
+          if (_rules!.isEmpty)
+            const Card(child: ListTile(title: Text('尚未建立排程')))
+          else
+            for (final rule in _rules!)
+              Card(
+                child: ListTile(
+                  leading: Icon(
+                    (rule.startAction ?? rule.action) == 'on'
+                        ? Icons.lightbulb_rounded
+                        : Icons.lightbulb_outline_rounded,
+                  ),
+                  title: Text(rule.name),
+                  subtitle: Text(_ruleSummary(rule)),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Switch(
+                        value: rule.enabled,
+                        onChanged: (value) => _toggleRule(rule, value),
+                      ),
+                      PopupMenuButton<String>(
+                        onSelected: (value) {
+                          if (value == 'edit') _editRule(rule);
+                          if (value == 'delete') _deleteRule(rule);
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'edit', child: Text('編輯')),
+                          PopupMenuItem(value: 'delete', child: Text('刪除')),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _add,
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('新增每日定時規則'),
-            ),
+          const SizedBox(height: 26),
+          Row(
+            children: [
+              const Expanded(child: _PageSectionLabel('情境模式')),
+              IconButton(
+                onPressed: () => _editScene(),
+                icon: const Icon(Icons.add_circle_outline_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (_scenes == null)
+            const Center(child: CircularProgressIndicator())
+          else if (_scenes!.isEmpty)
+            const Card(child: ListTile(title: Text('尚未建立情境')))
+          else
+            for (final scene in _scenes!)
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.movie_filter_outlined),
+                  title: Text(scene.name),
+                  subtitle: Text('${scene.actions.length} 個設備動作'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: '立即執行',
+                        onPressed: scene.enabled
+                            ? () => _runScene(scene)
+                            : null,
+                        icon: const Icon(Icons.play_arrow_rounded),
+                      ),
+                      Switch(
+                        value: scene.enabled,
+                        onChanged: (value) => _toggleScene(scene, value),
+                      ),
+                      PopupMenuButton<String>(
+                        onSelected: (value) {
+                          if (value == 'edit') _editScene(scene);
+                          if (value == 'delete') _deleteScene(scene);
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'edit', child: Text('編輯')),
+                          PopupMenuItem(value: 'delete', child: Text('刪除')),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          const SizedBox(height: 14),
+          const Text(
+            '排程由樹莓派本地時間執行；舊版只有單一開關動作的規則仍可使用。',
+            style: TextStyle(color: AppColors.muted, fontSize: 12, height: 1.4),
           ),
         ],
       ],
+    ),
+  );
+}
+
+AutomationRule _copyRule(AutomationRule rule, {bool? enabled}) =>
+    AutomationRule(
+      id: rule.id,
+      name: rule.name,
+      time: rule.time,
+      days: rule.days,
+      action: rule.action,
+      enabled: enabled ?? rule.enabled,
+      startTime: rule.startTime,
+      endTime: rule.endTime,
+      startAction: rule.startAction,
+      endAction: rule.endAction,
+      startMode: rule.startMode,
+      endMode: rule.endMode,
+      startBrightness: rule.startBrightness,
+      endBrightness: rule.endBrightness,
+      sceneId: rule.sceneId,
+    );
+
+String _ruleSummary(AutomationRule rule) {
+  final days = _daysLabel(rule.days);
+  final start = rule.startTime ?? rule.time;
+  final end = rule.endTime == null ? '' : ' → ${rule.endTime}';
+  return '$days  $start$end  ${_actionLabel(rule.startAction ?? rule.action)}';
+}
+
+String _daysLabel(List<int> days) {
+  if (days.length == 7) return '每天';
+  const labels = ['一', '二', '三', '四', '五', '六', '日'];
+  return days
+      .map((day) => day >= 0 && day < 7 ? '週${labels[day]}' : '?')
+      .join('、');
+}
+
+String _actionLabel(String action) => switch (action) {
+  'on' => '開燈',
+  'off' => '關燈',
+  'scene' => '執行情境',
+  _ => action,
+};
+
+String _sceneFailureMessage(SceneExecutionResult result) {
+  final failed = result.results
+      .where((item) => item['ok'] != true)
+      .map((item) => item['error'])
+      .whereType<String>()
+      .where((message) => message.isNotEmpty)
+      .join('、');
+  return failed.isEmpty ? '請查看樹莓派記錄' : failed;
+}
+
+TimeOfDay _parseTime(String value) {
+  final parts = value.split(':');
+  return TimeOfDay(
+    hour: int.tryParse(parts.first) ?? 18,
+    minute: int.tryParse(parts.last) ?? 0,
+  );
+}
+
+String _formatTime(TimeOfDay value) =>
+    '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+
+class _AutomationEditor extends StatefulWidget {
+  const _AutomationEditor({this.rule, required this.scenes});
+  final AutomationRule? rule;
+  final List<Scene> scenes;
+
+  @override
+  State<_AutomationEditor> createState() => _AutomationEditorState();
+}
+
+class _AutomationEditorState extends State<_AutomationEditor> {
+  late final TextEditingController _name;
+  late TimeOfDay _startTime;
+  TimeOfDay? _endTime;
+  late String _startAction, _endAction, _startMode, _endMode;
+  late double _startBrightness, _endBrightness;
+  late Set<int> _days;
+  int? _sceneId;
+
+  @override
+  void initState() {
+    super.initState();
+    final rule = widget.rule;
+    _name = TextEditingController(text: rule?.name ?? '晚上客廳燈');
+    _startTime = _parseTime(rule?.startTime ?? rule?.time ?? '18:00');
+    _endTime = rule?.endTime == null ? null : _parseTime(rule!.endTime!);
+    _startAction = rule?.startAction ?? rule?.action ?? 'on';
+    _endAction = rule?.endAction ?? 'off';
+    _startMode = rule?.startMode ?? 'warm_white';
+    _endMode = rule?.endMode ?? 'warm_yellow';
+    _startBrightness = rule?.startBrightness ?? 70;
+    _endBrightness = rule?.endBrightness ?? 30;
+    _days = {
+      ...(rule?.days ?? const [0, 1, 2, 3, 4, 5, 6]),
+    };
+    _sceneId = rule?.sceneId;
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickStart() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _startTime,
+    );
+    if (picked != null) setState(() => _startTime = picked);
+  }
+
+  Future<void> _pickEnd() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _endTime ?? _startTime,
+    );
+    if (picked != null) setState(() => _endTime = picked);
+  }
+
+  void _submit() {
+    final name = _name.text.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('請輸入排程名稱')));
+      return;
+    }
+    if (_days.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('至少選擇一個執行星期')));
+      return;
+    }
+    if ((_startAction == 'scene' || _endAction == 'scene') &&
+        _sceneId == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('請先選擇要執行的情境')));
+      return;
+    }
+    final start = _formatTime(_startTime);
+    Navigator.pop(
+      context,
+      AutomationRule(
+        id: widget.rule?.id,
+        name: name,
+        time: start,
+        days: _days.toList()..sort(),
+        action: _startAction,
+        enabled: widget.rule?.enabled ?? true,
+        startTime: start,
+        endTime: _endTime == null ? null : _formatTime(_endTime!),
+        startAction: _startAction,
+        endAction: _endTime == null ? null : _endAction,
+        startMode: _startAction == 'on' ? _startMode : null,
+        endMode: _endTime != null && _endAction == 'on' ? _endMode : null,
+        startBrightness: _startAction == 'on' ? _startBrightness : null,
+        endBrightness: _endTime != null && _endAction == 'on'
+            ? _endBrightness
+            : null,
+        sceneId: _sceneId,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    top: false,
+    child: Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        8,
+        20,
+        20 + MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.rule == null ? '新增燈光排程' : '編輯燈光排程',
+              style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _name,
+              decoration: const InputDecoration(
+                labelText: '排程名稱',
+                prefixIcon: Icon(Icons.label_outline_rounded),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('執行星期', style: TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              children: [
+                for (var day = 0; day < 7; day++)
+                  FilterChip(
+                    label: Text('週${['一', '二', '三', '四', '五', '六', '日'][day]}'),
+                    selected: _days.contains(day),
+                    onSelected: (selected) => setState(
+                      () => selected ? _days.add(day) : _days.remove(day),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.schedule_rounded),
+              title: const Text('開始時間'),
+              trailing: TextButton(
+                onPressed: _pickStart,
+                child: Text(_formatTime(_startTime)),
+              ),
+            ),
+            _ActionEditor(
+              title: '開始動作',
+              action: _startAction,
+              mode: _startMode,
+              brightness: _startBrightness,
+              scenes: widget.scenes,
+              sceneId: _sceneId,
+              onAction: (value) => setState(() => _startAction = value),
+              onMode: (value) => setState(() => _startMode = value),
+              onBrightness: (value) => setState(() => _startBrightness = value),
+              onScene: (value) => setState(() => _sceneId = value),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('設定結束時間'),
+              value: _endTime != null,
+              onChanged: (value) => setState(
+                () => _endTime = value ? (_endTime ?? _startTime) : null,
+              ),
+            ),
+            if (_endTime != null) ...[
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.timer_off_outlined),
+                title: const Text('結束時間'),
+                trailing: TextButton(
+                  onPressed: _pickEnd,
+                  child: Text(_formatTime(_endTime!)),
+                ),
+              ),
+              _ActionEditor(
+                title: '結束動作',
+                action: _endAction,
+                mode: _endMode,
+                brightness: _endBrightness,
+                scenes: widget.scenes,
+                sceneId: _sceneId,
+                onAction: (value) => setState(() => _endAction = value),
+                onMode: (value) => setState(() => _endMode = value),
+                onBrightness: (value) => setState(() => _endBrightness = value),
+                onScene: (value) => setState(() => _sceneId = value),
+              ),
+            ],
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _submit,
+                child: const Text('儲存排程'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _ActionEditor extends StatelessWidget {
+  const _ActionEditor({
+    required this.title,
+    required this.action,
+    required this.mode,
+    required this.brightness,
+    required this.scenes,
+    required this.sceneId,
+    required this.onAction,
+    required this.onMode,
+    required this.onBrightness,
+    required this.onScene,
+  });
+  final String title, action, mode;
+  final double brightness;
+  final List<Scene> scenes;
+  final int? sceneId;
+  final ValueChanged<String> onAction, onMode;
+  final ValueChanged<double> onBrightness;
+  final ValueChanged<int?> onScene;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    color: AppColors.surfaceRaised,
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            initialValue: action,
+            decoration: const InputDecoration(labelText: '動作'),
+            items: const [
+              DropdownMenuItem(value: 'on', child: Text('開燈')),
+              DropdownMenuItem(value: 'off', child: Text('關燈')),
+              DropdownMenuItem(value: 'scene', child: Text('執行情境')),
+            ],
+            onChanged: (value) {
+              if (value != null) onAction(value);
+            },
+          ),
+          if (action == 'on') ...[
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              initialValue: mode,
+              decoration: const InputDecoration(labelText: '燈光模式'),
+              items: const [
+                DropdownMenuItem(value: 'warm_yellow', child: Text('暖黃光')),
+                DropdownMenuItem(value: 'warm_white', child: Text('暖白光')),
+                DropdownMenuItem(value: 'natural_white', child: Text('自然白')),
+                DropdownMenuItem(value: 'cool_white', child: Text('冷白光')),
+              ],
+              onChanged: (value) {
+                if (value != null) onMode(value);
+              },
+            ),
+            Row(
+              children: [
+                const Icon(Icons.brightness_6_outlined),
+                Expanded(
+                  child: Slider(
+                    value: brightness,
+                    min: 0,
+                    max: 100,
+                    onChanged: onBrightness,
+                  ),
+                ),
+                Text('${brightness.round()}%'),
+              ],
+            ),
+          ],
+          if (action == 'scene')
+            DropdownButtonFormField<int>(
+              initialValue: scenes.any((scene) => scene.id == sceneId)
+                  ? sceneId
+                  : null,
+              decoration: const InputDecoration(labelText: '選擇情境'),
+              items: [
+                for (final scene in scenes)
+                  DropdownMenuItem(value: scene.id, child: Text(scene.name)),
+              ],
+              onChanged: onScene,
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _SceneEditor extends StatefulWidget {
+  const _SceneEditor({this.scene});
+  final Scene? scene;
+
+  @override
+  State<_SceneEditor> createState() => _SceneEditorState();
+}
+
+class _SceneEditorState extends State<_SceneEditor> {
+  late final TextEditingController _name, _url;
+  bool _includeLight = true, _lightOn = true, _includeMusic = false;
+  String _mode = 'warm_yellow';
+  double _brightness = 20;
+  String _musicCommand = 'play';
+
+  @override
+  void initState() {
+    super.initState();
+    final scene = widget.scene;
+    final lightActions =
+        scene?.actions.where((action) => action.device == 'light').toList() ??
+        const <SceneAction>[];
+    final musicActions =
+        scene?.actions.where((action) => action.device == 'music').toList() ??
+        const <SceneAction>[];
+    final light = lightActions.isEmpty ? null : lightActions.first;
+    final music = musicActions.isEmpty ? null : musicActions.first;
+    _name = TextEditingController(text: scene?.name ?? '電影模式');
+    _url = TextEditingController(text: music?.url ?? '');
+    _includeLight = light != null || scene == null;
+    _lightOn = light?.on ?? true;
+    _mode = light?.mode ?? 'warm_yellow';
+    _brightness = light?.brightness ?? 20;
+    _includeMusic = music != null;
+    _musicCommand = music?.command ?? 'play';
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _url.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _name.text.trim();
+    final actions = <SceneAction>[];
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('請輸入情境名稱')));
+      return;
+    }
+    if (_includeLight)
+      actions.add(
+        SceneAction(
+          device: 'light',
+          on: _lightOn,
+          mode: _mode,
+          brightness: _brightness,
+        ),
+      );
+    if (_includeMusic) {
+      if (_musicCommand == 'play' && _url.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('播放音樂需要 YouTube 連結')));
+        return;
+      }
+      actions.add(
+        SceneAction(
+          device: 'music',
+          command: _musicCommand,
+          url: _url.text.trim(),
+        ),
+      );
+    }
+    if (actions.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('至少選擇一個設備動作')));
+      return;
+    }
+    Navigator.pop(
+      context,
+      Scene(
+        id: widget.scene?.id,
+        name: name,
+        actions: actions,
+        enabled: widget.scene?.enabled ?? true,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    top: false,
+    child: Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        8,
+        20,
+        20 + MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.scene == null ? '新增情境' : '編輯情境',
+              style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _name,
+              decoration: const InputDecoration(
+                labelText: '情境名稱',
+                prefixIcon: Icon(Icons.movie_filter_outlined),
+              ),
+            ),
+            const SizedBox(height: 14),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('控制燈光'),
+              value: _includeLight,
+              onChanged: (value) => setState(() => _includeLight = value),
+            ),
+            if (_includeLight) ...[
+              DropdownButtonFormField<bool>(
+                initialValue: _lightOn,
+                decoration: const InputDecoration(labelText: '燈光狀態'),
+                items: const [
+                  DropdownMenuItem(value: true, child: Text('開燈')),
+                  DropdownMenuItem(value: false, child: Text('關燈')),
+                ],
+                onChanged: (value) {
+                  if (value != null) setState(() => _lightOn = value);
+                },
+              ),
+              if (_lightOn) ...[
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: _mode,
+                  decoration: const InputDecoration(labelText: '燈光模式'),
+                  items: const [
+                    DropdownMenuItem(value: 'warm_yellow', child: Text('暖黃光')),
+                    DropdownMenuItem(value: 'warm_white', child: Text('暖白光')),
+                    DropdownMenuItem(
+                      value: 'natural_white',
+                      child: Text('自然白'),
+                    ),
+                    DropdownMenuItem(value: 'cool_white', child: Text('冷白光')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setState(() => _mode = value);
+                  },
+                ),
+                Row(
+                  children: [
+                    const Icon(Icons.brightness_6_outlined),
+                    Expanded(
+                      child: Slider(
+                        value: _brightness,
+                        min: 0,
+                        max: 100,
+                        onChanged: (value) =>
+                            setState(() => _brightness = value),
+                      ),
+                    ),
+                    Text('${_brightness.round()}%'),
+                  ],
+                ),
+              ],
+            ],
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('控制樹莓派音樂'),
+              value: _includeMusic,
+              onChanged: (value) => setState(() => _includeMusic = value),
+            ),
+            if (_includeMusic) ...[
+              DropdownButtonFormField<String>(
+                initialValue: _musicCommand,
+                decoration: const InputDecoration(labelText: '音樂動作'),
+                items: const [
+                  DropdownMenuItem(value: 'play', child: Text('播放音樂')),
+                  DropdownMenuItem(value: 'stop', child: Text('停止播放')),
+                ],
+                onChanged: (value) {
+                  if (value != null) setState(() => _musicCommand = value);
+                },
+              ),
+              if (_musicCommand == 'play') ...[
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _url,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    labelText: 'YouTube 連結',
+                    prefixIcon: Icon(Icons.link_rounded),
+                  ),
+                ),
+              ],
+            ],
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _submit,
+                child: const Text('儲存情境'),
+              ),
+            ),
+          ],
+        ),
+      ),
     ),
   );
 }
@@ -2100,37 +2503,6 @@ class _PageSectionLabel extends StatelessWidget {
       fontSize: 12,
       fontWeight: FontWeight.w800,
       letterSpacing: 0.7,
-    ),
-  );
-}
-
-class _AutomationSuggestion extends StatelessWidget {
-  const _AutomationSuggestion({
-    required this.icon,
-    required this.title,
-    required this.detail,
-  });
-  final IconData icon;
-  final String title, detail;
-  @override
-  Widget build(BuildContext context) => Card(
-    child: ListTile(
-      minVerticalPadding: 12,
-      leading: Container(
-        width: 42,
-        height: 42,
-        decoration: const BoxDecoration(
-          color: AppColors.selectionSoft,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, color: AppColors.text),
-      ),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-      subtitle: Text(
-        detail,
-        style: const TextStyle(color: AppColors.muted, fontSize: 12),
-      ),
-      trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
     ),
   );
 }

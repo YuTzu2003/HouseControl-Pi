@@ -24,7 +24,17 @@ class LEDService:
         if retained or len(payload) > 1024:
             return
         try:
-            data, updated = json.loads(payload.decode("utf-8")), self.state.copy()
+            data = json.loads(payload.decode("utf-8"))
+            ok, error = self.apply_command(data)
+            if not ok:
+                print(f"燈光指令失敗：{error}")
+        except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            print(f"燈光指令失敗：{error}")
+
+    def apply_command(self, data):
+        """Validate and apply one light action; return (ok, error)."""
+        try:
+            updated = self.state.copy()
             if "on" in data:
                 if type(data["on"]) is not bool:
                     raise ValueError("on 必須是 true 或 false")
@@ -41,8 +51,9 @@ class LEDService:
             self.state = updated
             self.apply()
             self.report()
-        except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
-            print(error)
+            return True, None
+        except Exception as error:
+            return False, str(error)
 
     def apply(self):
         scale = self.state["brightness"] / 100 if self.state["on"] else 0

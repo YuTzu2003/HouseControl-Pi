@@ -565,13 +565,13 @@ class _HomePageState extends State<HomePage> {
   Timer? _brightnessDebounce;
   List<SensorReading>? _todayReadings;
   DemoState _state = DemoState.ready;
-  String _scene = '回家';
   bool get _canControl => _state == DemoState.ready;
 
   @override
   void initState() {
     super.initState();
     _lightService = MqttLightService(widget.settings);
+    _lightService.lightState.addListener(_onLightStateChanged);
     _rfidService = MqttRfidService(widget.settings);
     _rfidService.event.addListener(_handleRfidEvent);
     _loadTodayReadings();
@@ -631,23 +631,53 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _brightnessDebounce?.cancel();
+    _lightService.lightState.removeListener(_onLightStateChanged);
     _rfidService.event.removeListener(_handleRfidEvent);
     _rfidService.dispose();
     _lightService.dispose();
     super.dispose();
   }
 
-  Future<void> _action(VoidCallback action, String message) async {
+  void _onLightStateChanged() {
+    if (mounted) setState(() {});
+  }
+
+  String _sceneForLight(LightState light) {
+    if (!light.on) return '晚安';
+    if (light.mode == 'warm_white' && light.brightness == 100) return '回家';
+    if (light.mode == 'cool_white' && light.brightness == 100) return '專注';
+    if (light.mode == 'warm_yellow' && light.brightness == 20) return '電影';
+    return '';
+  }
+
+  void _applyScene(String scene) {
     if (!_canControl) return;
-    setState(() => _state = DemoState.loading);
-    await Future<void>.delayed(const Duration(milliseconds: 260));
-    if (!mounted) return;
-    setState(() {
-      _state = DemoState.ready;
-      action();
-    });
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    if (_lightService.status.value != LightConnectionStatus.connected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('燈光尚未連線，請檢查 MQTT 設定與樹莓派連線')),
+      );
+      return;
+    }
+    _brightnessDebounce?.cancel();
+    switch (scene) {
+      case '回家':
+        _lightService.setLight(on: true, mode: 'warm_white', brightness: 100);
+        break;
+      case '專注':
+        _lightService.setLight(on: true, mode: 'cool_white', brightness: 100);
+        break;
+      case '電影':
+        _lightService.setLight(on: true, mode: 'warm_yellow', brightness: 20);
+        break;
+      case '晚安':
+        _lightService.setLight(on: false);
+        break;
+      default:
+        return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('已送出「$scene」燈光指令')),
+    );
   }
 
   void _chooseState() => showModalBottomSheet<void>(
@@ -778,9 +808,9 @@ class _HomePageState extends State<HomePage> {
         const _Kicker('情境模式'),
         const SizedBox(height: 10),
         _PresetRow(
-          selected: _scene,
+          selected: _sceneForLight(_lightService.lightState.value),
           enabled: _canControl,
-          onSelect: (scene) => _action(() => _scene = scene, '已套用「$scene」情境'),
+          onSelect: _applyScene,
         ),
       ],
     );

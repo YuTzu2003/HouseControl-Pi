@@ -1,7 +1,8 @@
 import asyncio
 from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from iot_control.house_pi import delete_automation, get_card, list_access_logs, list_automations, list_cards, list_dht11_readings, save_automation
 from iot_control.config import LIVE_FRAME_PATH, RECORDINGS_DIR
@@ -59,7 +60,18 @@ async def live_camera():
 def live_camera_frame():
     if not LIVE_FRAME_PATH.is_file():
         raise HTTPException(status_code=503, detail="Camera is starting")
-    return FileResponse(LIVE_FRAME_PATH, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+    # ffmpeg 會持續覆寫 live.jpg。FileResponse 先取得 Content-Length、
+    # 再串流讀取檔案時，檔案可能已變大，造成 HTTP 回應中斷。
+    # 先讀取一份當下快照可確保 Content-Length 與內容一致。
+    try:
+        frame = LIVE_FRAME_PATH.read_bytes()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="Camera is starting") from None
+    return Response(
+        content=frame,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/camera/recordings")
@@ -67,15 +79,16 @@ def recordings():
     return [
         {"name": file.name, "size": file.stat().st_size, "recorded_at": file.stem}
         for file in sorted(RECORDINGS_DIR.glob("*.mp4"), reverse=True)
+        if not file.name.endswith(".partial.mp4")
     ]
 
 
 @app.get("/camera/recordings/{name}")
 def recording(name: str):
     file = RECORDINGS_DIR / Path(name).name
-    if file.suffix != ".mp4" or not file.is_file():
+    if file.suffix != ".mp4" or file.name.endswith(".partial.mp4") or not file.is_file():
         raise HTTPException(status_code=404, detail="Recording not found")
-    return FileResponse(file, media_type="video/mp4")
+    return FileResponse(file, media_type="video/mp4", filename=file.name)
 
 
 @app.get("/rfid/cards", response_model=list[Card])

@@ -1,5 +1,6 @@
 import json
 import math
+
 import RPi.GPIO as GPIO
 
 TOPIC_SET = "house/room/light/set"

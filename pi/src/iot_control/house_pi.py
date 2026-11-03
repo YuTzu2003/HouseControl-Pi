@@ -3,8 +3,10 @@ import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
 import paho.mqtt.client as mqtt
 import RPi.GPIO as GPIO
+
 from .dht11_conn import read_dht11
 from .led_mqtt import LEDService, TOPIC_SET as LIGHT_TOPIC
 
@@ -14,10 +16,13 @@ MQTT_USER = "houseapp"
 MQTT_PASSWORD = "123456"
 TOPIC_DHT = "house/dht11/reading"
 DHT_INTERVAL_SECONDS = 30 * 60
+# 將資料庫放在啟動指令所在的資料夾，避免被安裝到 site-packages 後路徑改變。
 DATABASE_PATH = Path.cwd() / "house-pi.db"
+
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
 
 def connection():
     db = sqlite3.connect(DATABASE_PATH)
@@ -39,6 +44,7 @@ def connection():
     db.commit()
     return db
 
+
 def bind_card(uid, member_id, member_name):
     now = utc_now()
     with connection() as db:
@@ -48,10 +54,12 @@ def bind_card(uid, member_id, member_name):
             (uid, member_id, member_name, now, now, now))
     return get_card(uid)
 
+
 def get_card(uid):
     with connection() as db:
         row = db.execute("SELECT * FROM rfid_cards WHERE uid = ?", (uid,)).fetchone()
     return dict(row) if row else None
+
 
 def list_cards(member_id=None):
     with connection() as db:
@@ -61,6 +69,7 @@ def list_cards(member_id=None):
             args = (member_id,)
         rows = db.execute(query + " ORDER BY member_name, uid", args).fetchall()
     return [dict(row) for row in rows]
+
 
 def record_access(uid):
     now = utc_now()
@@ -74,10 +83,12 @@ def record_access(uid):
             VALUES (?, ?, ?, 1, ?)""", (uid, row["member_id"], row["member_name"], now))
     return get_card(uid)
 
+
 def list_access_logs(limit=100):
     with connection() as db:
         rows = db.execute("SELECT * FROM rfid_access_logs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     return [dict(row) for row in rows]
+
 
 def save_dht11_reading(temperature, humidity):
     reading = {"temperature": temperature, "humidity": humidity, "recorded_at": utc_now()}
@@ -86,15 +97,18 @@ def save_dht11_reading(temperature, humidity):
                    (temperature, humidity, reading["recorded_at"]))
     return reading
 
+
 def list_dht11_readings(limit=48):
     with connection() as db:
         rows = db.execute("SELECT * FROM dht11_readings ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     return [dict(row) for row in rows]
 
+
 def list_automations():
     with connection() as db:
         rows = db.execute("SELECT * FROM automation_rules ORDER BY time, id").fetchall()
     return [_automation_dict(row) for row in rows]
+
 
 def save_automation(rule, rule_id=None):
     days = json.dumps(sorted(set(rule["days"])))
@@ -140,8 +154,10 @@ def _automation_dict(row):
 
 
 def main():
+    # 延後載入以避免 RFID 元件與此模組的資料庫函式形成循環匯入。
     from .rfid_mqtt import RFIDService, TOPIC_BIND, TOPIC_STATUS
     from .music_mqtt import MusicService, TOPIC_PLAY, TOPIC_STOP
+
     GPIO.setwarnings(False)
     GPIO.setmode(GPIO.BOARD)
     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2, client_id="pi4-house-control")

@@ -1,9 +1,16 @@
+import os
 from pathlib import Path
 
-RECORDINGS_DIR = Path("/var/lib/house-control/recordings")
+# 預設將錄影放在專案資料夾，方便直接備份、下載與管理。可用
+# HOUSE_CONTROL_RECORDINGS_DIR 覆寫為外接硬碟或其他絕對路徑。
+PROJECT_DIR = Path(__file__).resolve().parents[2]
+RECORDINGS_DIR = Path(
+    os.environ.get("HOUSE_CONTROL_RECORDINGS_DIR", PROJECT_DIR / "recordings")
+).expanduser()
 LIVE_FRAME_PATH = RECORDINGS_DIR / "live.jpg"
-CAMERA_SEGMENT_SECONDS = 300
-CAMERA_RETENTION_MINUTES = 20
+CAMERA_SEGMENT_SECONDS = int(os.environ.get("CAMERA_SEGMENT_SECONDS", "300"))
+# 僅保留最近 20 分鐘的已完成片段。
+CAMERA_RETENTION_MINUTES = int(os.environ.get("CAMERA_RETENTION_MINUTES", "20"))
 USB_WEBCAM_VIDEO_INPUT_ARGS = [
     "-f", "v4l2",
     "-framerate", "30",
@@ -37,6 +44,7 @@ CAMERA_AUDIO_INPUT_ARGS = USB_WEBCAM_AUDIO_INPUT_ARGS
 # 若改用 CSI Pi Camera，未來錄影程式應改用以下設定：
 # CAMERA_VIDEO_COMMAND = CSI_CAMERA_COMMAND
 # CAMERA_AUDIO_INPUT_ARGS = USB_WEBCAM_AUDIO_INPUT_ARGS
+
 
 CAMERA_VIDEO_CODEC = "h264_v4l2m2m"
 CAMERA_AUDIO_CODEC = "aac"

@@ -385,6 +385,7 @@ def main():
         YouTubeService,
         TOPIC_PLAY as YT_TOPIC_PLAY,
         TOPIC_STOP as YT_TOPIC_STOP,
+        TOPIC_PAUSE as YT_TOPIC_PAUSE,
         TOPIC_VOLUME as YT_TOPIC_VOLUME,
     )
 
@@ -411,7 +412,7 @@ def main():
         mqtt_client.subscribe([
             (TOPIC_BIND, 1), (LIGHT_TOPIC, 1), (TOPIC_PLAY, 1), (TOPIC_STOP, 1),
             (TOPIC_SCENE_EXECUTE, 1),
-            (YT_TOPIC_PLAY, 1), (YT_TOPIC_STOP, 1), (YT_TOPIC_VOLUME, 1),
+            (YT_TOPIC_PLAY, 1), (YT_TOPIC_STOP, 1), (YT_TOPIC_PAUSE, 1), (YT_TOPIC_VOLUME, 1),
         ])
         mqtt_client.publish(TOPIC_STATUS, json.dumps({"online": True, "at": utc_now()}), qos=1, retain=True)
         led.report()
@@ -438,6 +439,8 @@ def main():
                 youtube.handle_play(message.payload, message.retain)
             elif message.topic == YT_TOPIC_STOP:
                 youtube.handle_stop(message.payload, message.retain)
+            elif message.topic == YT_TOPIC_PAUSE:
+                youtube.handle_pause(message.payload, message.retain)
             elif message.topic == YT_TOPIC_VOLUME:
                 youtube.handle_volume(message.payload, message.retain)
             elif message.topic == TOPIC_SCENE_EXECUTE and not message.retain:

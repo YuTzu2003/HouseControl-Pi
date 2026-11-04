@@ -6,14 +6,11 @@ import 'package:flutter/services.dart';
 import 'mqtt_settings.dart';
 import 'mqtt_youtube_service.dart';
 
-/// 手機貼 YouTube 連結 → 樹莓派喇叭播放。
-///
-/// UI 刻意和「音樂模式」分家：音樂模式只播單首歌，YouTube 模式允許在
-/// 播放過程中動態調整音量、看到目前標題。
 class YouTubePage extends StatefulWidget {
-  const YouTubePage({super.key, required this.settings});
+  const YouTubePage({super.key, required this.settings, this.initialUrl});
 
   final MqttSettings settings;
+  final String? initialUrl;
 
   @override
   State<YouTubePage> createState() => _YouTubePageState();
@@ -23,16 +20,17 @@ class _YouTubePageState extends State<YouTubePage> {
   late final MqttYouTubeService _service;
   final _urlController = TextEditingController();
   bool _sending = false;
-  bool _stopping = false;
-  // 滑桿拖曳期間先在本地維護，放開才發 MQTT，避免每一幀都打網路。
   Timer? _volumeDebounce;
-  int? _pendingVolume;
 
   @override
   void initState() {
     super.initState();
     _service = MqttYouTubeService(widget.settings);
     _service.connect();
+    if (widget.initialUrl != null) {
+      _urlController.text = widget.initialUrl!;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _play());
+    }
   }
 
   @override
@@ -53,15 +51,15 @@ class _YouTubePageState extends State<YouTubePage> {
     final ok = await _service.play(text);
     if (!mounted) return;
     setState(() => _sending = false);
-    _snack(ok ? '已送出播放指令，等待樹莓派回報。' : '無法連線到樹莓派，請確認 MQTT 設定。');
+    if (!ok) _snack('無法連線到樹莓派，請確認 MQTT 設定。');
   }
 
   Future<void> _stop() async {
-    setState(() => _stopping = true);
-    final ok = await _service.stop();
-    if (!mounted) return;
-    setState(() => _stopping = false);
-    _snack(ok ? '已要求樹莓派停止播放。' : '無法連線到樹莓派，請確認 MQTT 設定。');
+    await _service.stop();
+  }
+
+  Future<void> _togglePause() async {
+    await _service.togglePause();
   }
 
   Future<void> _pasteUrl() async {
@@ -75,36 +73,21 @@ class _YouTubePageState extends State<YouTubePage> {
   }
 
   void _onVolumeChanged(double value) {
-    _pendingVolume = value.round();
     _volumeDebounce?.cancel();
-    _volumeDebounce = Timer(const Duration(milliseconds: 250), () {
-      final target = _pendingVolume;
-      if (target != null) _service.setVolume(target);
-    });
+    _service.setVolume(value.round());
+    _volumeDebounce = Timer(const Duration(milliseconds: 250), () {});
   }
 
   void _snack(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  String _connectionLabel(YouTubeConnectionStatus value) {
-    switch (value) {
-      case YouTubeConnectionStatus.connected:
-        return '樹莓派已連線';
-      case YouTubeConnectionStatus.connecting:
-        return '正在連線樹莓派…';
-      case YouTubeConnectionStatus.failed:
-        return '樹莓派連線失敗';
-      case YouTubeConnectionStatus.disconnected:
-        return '樹莓派未連線';
-    }
-  }
-
-  String _playbackLabel(YouTubeState value) {
-    if (value.hasError) return value.message ?? '播放失敗';
-    if (value.isPlaying) return value.title ?? '正在播放';
-    return value.message ?? '目前沒有播放';
-  }
+  String _connectionLabel(YouTubeConnectionStatus value) => switch (value) {
+    YouTubeConnectionStatus.connected => '樹莓派已連線',
+    YouTubeConnectionStatus.connecting => '正在連線…',
+    YouTubeConnectionStatus.failed => '連線失敗',
+    YouTubeConnectionStatus.disconnected => '未連線',
+  };
 
   @override
   Widget build(BuildContext context) =>
@@ -116,43 +99,71 @@ class _YouTubePageState extends State<YouTubePage> {
               builder: (context, playback, _) {
                 final connected =
                     connection == YouTubeConnectionStatus.connected;
+                final isActive = playback.isActive;
                 return Scaffold(
-                  appBar: AppBar(title: const Text('YouTube 播放')),
+                  appBar: AppBar(title: const Text('播放器')),
                   body: SafeArea(
                     top: false,
                     child: Center(
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 560),
                         child: ListView(
-                          padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+                          padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
                           children: [
-                            _StatusCard(
+                            // --- 連線狀態 ---
+                            _ConnectionChip(
                               connected: connected,
-                              connectionLabel: _connectionLabel(connection),
-                              playback: playback,
-                              playbackLabel: _playbackLabel(playback),
+                              label: _connectionLabel(connection),
+                              onRetry: connected ? null : _service.connect,
                             ),
                             const SizedBox(height: 16),
+
+                            // --- Now Playing ---
+                            if (isActive) ...[
+                              _NowPlayingCard(
+                                playback: playback,
+                                onTogglePause: _togglePause,
+                                onStop: _stop,
+                                onVolumeChanged: connected
+                                    ? _onVolumeChanged
+                                    : null,
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+
+                            // --- 輸入區 ---
                             Card(
                               child: Padding(
                                 padding: const EdgeInsets.all(20),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
+                                    Text(
+                                      isActive ? '換一首' : '播放音樂',
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
                                     const Text(
-                                      '貼上 YouTube 連結或影片 ID，在樹莓派喇叭播放。',
-                                      style: TextStyle(height: 1.5),
+                                      '貼上 YouTube 連結，樹莓派喇叭直接播放。',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey,
+                                        height: 1.4,
+                                      ),
                                     ),
                                     const SizedBox(height: 16),
                                     TextField(
                                       controller: _urlController,
                                       keyboardType: TextInputType.url,
+                                      textInputAction: TextInputAction.go,
+                                      onSubmitted: (_) => _play(),
                                       decoration: InputDecoration(
-                                        labelText: 'YouTube 連結或 11 碼 ID',
+                                        labelText: 'YouTube 連結或影片 ID',
                                         prefixIcon:
                                             const Icon(Icons.link_rounded),
-                                        helperText:
-                                            '支援 youtube.com / youtu.be / 純影片 ID',
                                         suffixIcon: IconButton(
                                           tooltip: '從剪貼簿貼上',
                                           onPressed: _pasteUrl,
@@ -167,26 +178,23 @@ class _YouTubePageState extends State<YouTubePage> {
                                       width: double.infinity,
                                       child: FilledButton.icon(
                                         onPressed:
-                                            _sending || !connected ? null : _play,
-                                        icon: const Icon(
-                                          Icons.play_arrow_rounded,
-                                        ),
+                                            _sending || !connected
+                                                ? null
+                                                : _play,
+                                        icon: _sending
+                                            ? const SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                ),
+                                              )
+                                            : const Icon(
+                                                Icons.play_arrow_rounded,
+                                              ),
                                         label: Text(
-                                          _sending ? '正在傳送…' : '開始播放',
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: OutlinedButton.icon(
-                                        onPressed:
-                                            _stopping || !connected ? null : _stop,
-                                        icon: const Icon(
-                                          Icons.stop_circle_outlined,
-                                        ),
-                                        label: Text(
-                                          _stopping ? '正在停止…' : '停止播放',
+                                          _sending ? '正在載入…' : '播放',
                                         ),
                                       ),
                                     ),
@@ -194,52 +202,50 @@ class _YouTubePageState extends State<YouTubePage> {
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 16),
-                            Card(
-                              child: Padding(
-                                padding: const EdgeInsets.all(20),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
+
+                            // --- Error ---
+                            if (playback.hasError && playback.message != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 16),
+                                child: Card(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .errorContainer,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Row(
                                       children: [
-                                        const Icon(Icons.volume_up_rounded),
-                                        const SizedBox(width: 8),
-                                        const Text(
-                                          '喇叭音量',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w700,
+                                        Icon(
+                                          Icons.error_outline_rounded,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .error,
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Text(
+                                            playback.message!,
+                                            style: TextStyle(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onErrorContainer,
+                                            ),
                                           ),
                                         ),
-                                        const Spacer(),
-                                        Text('${playback.volume}'),
                                       ],
                                     ),
-                                    Slider(
-                                      min: 0,
-                                      max: 100,
-                                      divisions: 100,
-                                      value: playback.volume.toDouble(),
-                                      onChanged: connected
-                                          ? _onVolumeChanged
-                                          : null,
-                                    ),
-                                    const Text(
-                                      '音量會直接送到 mpv，不會影響系統其他輸出。',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        height: 1.45,
-                                      ),
-                                    ),
-                                  ],
+                                  ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: 16),
+
+                            const SizedBox(height: 24),
                             const Text(
-                              '樹莓派需安裝 mpv 與 yt-dlp（已包含在 pyproject 相依裡）。'
-                              '首次使用請執行 uv sync 並確認喇叭是預設 ALSA/PipeWire 輸出。',
-                              style: TextStyle(fontSize: 13, height: 1.45),
+                              '提示：也可以在 YouTube App 分享影片到這個 App，直接播放。',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                                height: 1.45,
+                              ),
                             ),
                           ],
                         ),
@@ -252,18 +258,55 @@ class _YouTubePageState extends State<YouTubePage> {
       );
 }
 
-class _StatusCard extends StatelessWidget {
-  const _StatusCard({
+class _ConnectionChip extends StatelessWidget {
+  const _ConnectionChip({
     required this.connected,
-    required this.connectionLabel,
-    required this.playback,
-    required this.playbackLabel,
+    required this.label,
+    this.onRetry,
   });
-
   final bool connected;
-  final String connectionLabel;
+  final String label;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Icon(
+        connected ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
+        size: 16,
+        color: connected ? Colors.green : Colors.grey,
+      ),
+      const SizedBox(width: 6),
+      Text(label, style: const TextStyle(fontSize: 13)),
+      if (!connected && onRetry != null) ...[
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: onRetry,
+          child: const Text(
+            '重試',
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.blue,
+              decoration: TextDecoration.underline,
+            ),
+          ),
+        ),
+      ],
+    ],
+  );
+}
+
+class _NowPlayingCard extends StatelessWidget {
+  const _NowPlayingCard({
+    required this.playback,
+    required this.onTogglePause,
+    required this.onStop,
+    required this.onVolumeChanged,
+  });
   final YouTubeState playback;
-  final String playbackLabel;
+  final VoidCallback onTogglePause;
+  final VoidCallback onStop;
+  final ValueChanged<double>? onVolumeChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -277,46 +320,102 @@ class _StatusCard extends StatelessWidget {
             Row(
               children: [
                 Icon(
-                  connected ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
-                  color: connected ? Colors.green : theme.disabledColor,
+                  playback.isPaused
+                      ? Icons.pause_circle_filled_rounded
+                      : Icons.play_circle_filled_rounded,
+                  color: theme.colorScheme.primary,
+                  size: 40,
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  connectionLabel,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  playback.isPlaying
-                      ? Icons.music_note_rounded
-                      : Icons.music_off_rounded,
-                  color: playback.hasError
-                      ? theme.colorScheme.error
-                      : theme.iconTheme.color,
-                ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    playbackLabel,
-                    style: const TextStyle(height: 1.4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        playback.title ?? '正在播放',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          height: 1.3,
+                        ),
+                      ),
+                      if (playback.isPaused)
+                        Text(
+                          '已暫停',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.secondary,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ],
             ),
-            if (playback.url != null && playback.isPlaying) ...[
-              const SizedBox(height: 6),
-              Text(
-                playback.url!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12),
+            if (playback.url != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  playback.url!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                ),
               ),
-            ],
+            const SizedBox(height: 16),
+
+            // --- 控制按鈕 ---
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton.filled(
+                  onPressed: onTogglePause,
+                  iconSize: 32,
+                  icon: Icon(
+                    playback.isPaused
+                        ? Icons.play_arrow_rounded
+                        : Icons.pause_rounded,
+                  ),
+                  tooltip: playback.isPaused ? '繼續' : '暫停',
+                ),
+                const SizedBox(width: 16),
+                IconButton.outlined(
+                  onPressed: onStop,
+                  iconSize: 28,
+                  icon: const Icon(Icons.stop_rounded),
+                  tooltip: '停止',
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // --- 音量 ---
+            Row(
+              children: [
+                const Icon(Icons.volume_down_rounded, size: 20),
+                Expanded(
+                  child: Slider(
+                    min: 0,
+                    max: 100,
+                    divisions: 20,
+                    value: playback.volume.toDouble(),
+                    onChanged: onVolumeChanged,
+                  ),
+                ),
+                const Icon(Icons.volume_up_rounded, size: 20),
+                const SizedBox(width: 4),
+                SizedBox(
+                  width: 30,
+                  child: Text(
+                    '${playback.volume}',
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),

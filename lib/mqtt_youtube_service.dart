@@ -10,6 +10,7 @@ import 'mqtt_settings.dart';
 // 對應 pi/house_control/youtube_player.py 的 TOPIC_*。改名要兩邊同步。
 const _playTopic = 'house/youtube/play';
 const _stopTopic = 'house/youtube/stop';
+const _pauseTopic = 'house/youtube/pause';
 const _volumeTopic = 'house/youtube/volume';
 const _statusTopic = 'house/youtube/status';
 
@@ -33,6 +34,8 @@ class YouTubeState {
   final String? message;
 
   bool get isPlaying => state == 'playing';
+  bool get isPaused => state == 'paused';
+  bool get isActive => isPlaying || isPaused;
   bool get hasError => state == 'error';
 
   factory YouTubeState.fromJson(Map<String, dynamic> json) {
@@ -158,6 +161,8 @@ class MqttYouTubeService {
       _publish(_playTopic, {'url': urlOrVideoId});
 
   Future<bool> stop() => _publish(_stopTopic, <String, Object?>{});
+
+  Future<bool> togglePause() => _publish(_pauseTopic, <String, Object?>{});
 
   /// 樂觀更新：先把滑桿值寫進 state，再送 MQTT；若送出失敗則狀態訊息重新
   /// 由 retained 回報修正。

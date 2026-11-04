@@ -1,20 +1,4 @@
-"""樹莓派端 YouTube 音訊播放服務。
-
-和 ``music.py`` 類似，用 ``yt-dlp`` 解析 YouTube 連結、交給 ``mpv`` 只播
-音訊到預設 ALSA/PipeWire 輸出。與音樂服務不同的是：
-
-* 接收獨立的 ``house/youtube/*`` MQTT 主題，手機 App 的「YouTube 模式」
-  頁面透過這些主題控制播放。
-* 支援動態調整音量——透過 ``mpv`` 的 ``--input-ipc-server`` JSON RPC
-  介面，不必重啟播放程序即可調整。
-* 播放狀態同時回報影片標題，讓 App UI 可以顯示目前正在播什麼。
-
-本模組預期由 :func:`house_control.controller.main` 匯入並註冊
-``handle_play`` / ``handle_stop`` / ``handle_volume`` 到 MQTT 分派表。
-"""
-
 from __future__ import annotations
-
 import json
 import logging
 import os
@@ -32,6 +16,7 @@ from urllib.parse import parse_qs, urlparse
 
 TOPIC_PLAY = "house/youtube/play"
 TOPIC_STOP = "house/youtube/stop"
+TOPIC_PAUSE = "house/youtube/pause"
 TOPIC_VOLUME = "house/youtube/volume"
 TOPIC_STATUS = "house/youtube/status"
 
@@ -198,6 +183,11 @@ class YouTubeService:
             return
         self.set_volume(volume)
 
+    def handle_pause(self, payload: bytes, retained: bool = False) -> None:
+        if retained:
+            return
+        self.toggle_pause()
+
     # ---------- 核心邏輯 ----------
 
     def play(self, raw_url):
@@ -296,6 +286,25 @@ class YouTubeService:
                 return
         self.publish_status()
 
+    def toggle_pause(self) -> None:
+        with self._lock:
+            ipc_path = self.ipc_path
+            alive = self.process is not None and self.process.poll() is None
+        if not alive or not ipc_path:
+            return
+        try:
+            _mpv_command(ipc_path, ["cycle", "pause"])
+        except OSError as error:
+            LOGGER.warning("暫停/繼續失敗：%s", error)
+            return
+        time.sleep(0.15)
+        try:
+            paused = _mpv_get_property(ipc_path, "pause")
+            state = "paused" if paused else "playing"
+        except OSError:
+            state = "playing"
+        self.publish_status(state=state)
+
     # ---------- 狀態回報 ----------
 
     def publish_status(self, state: Optional[str] = None, message: Optional[str] = None) -> None:
@@ -383,5 +392,25 @@ def _mpv_command(ipc_path: str, command: list, timeout: float = 1.5) -> None:
         sock.connect(ipc_path)
         payload = json.dumps({"command": command}).encode("utf-8") + b"\n"
         sock.sendall(payload)
+    finally:
+        sock.close()
+
+
+def _mpv_get_property(ipc_path: str, name: str, timeout: float = 1.5):
+    """讀取 mpv 屬性值，回傳 data 欄位。"""
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(timeout)
+        sock.connect(ipc_path)
+        payload = json.dumps({"command": ["get_property", name]}).encode("utf-8") + b"\n"
+        sock.sendall(payload)
+        buf = b""
+        while b"\n" not in buf:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            buf += chunk
+        result = json.loads(buf.split(b"\n", 1)[0])
+        return result.get("data")
     finally:
         sock.close()

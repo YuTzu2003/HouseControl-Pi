@@ -2,14 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:video_player/video_player.dart';
 
 import 'family_members.dart';
 import 'house_api.dart';
 import 'history_page.dart';
 import 'mqtt_light_service.dart';
-import 'mqtt_music_service.dart';
 import 'mqtt_rfid_service.dart';
 import 'mqtt_scene_service.dart';
 import 'mqtt_settings.dart';
@@ -521,6 +520,7 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _page = 0;
   late final List<Widget> _pages;
+  StreamSubscription? _shareIntentSub;
 
   @override
   void initState() {
@@ -532,6 +532,44 @@ class _MainShellState extends State<MainShell> {
       FamilyMembersPage(settings: widget.settings),
       SettingsPage(host: widget.settings.host, onEdit: widget.onEditSettings),
     ];
+    _handleInitialShareIntent();
+    _shareIntentSub =
+        ReceiveSharingIntent.instance.getMediaStream().listen(_onSharedMedia);
+  }
+
+  @override
+  void dispose() {
+    _shareIntentSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _handleInitialShareIntent() async {
+    final media = await ReceiveSharingIntent.instance.getInitialMedia();
+    if (media.isNotEmpty) _onSharedMedia(media);
+  }
+
+  void _onSharedMedia(List<SharedMediaFile> media) {
+    for (final item in media) {
+      final text = item.path;
+      final url = _extractYouTubeUrl(text);
+      if (url != null) {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) =>
+                YouTubePage(settings: widget.settings, initialUrl: url),
+          ),
+        );
+        return;
+      }
+    }
+  }
+
+  String? _extractYouTubeUrl(String text) {
+    final pattern = RegExp(
+      r'https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/)[^\s]+',
+    );
+    final match = pattern.firstMatch(text);
+    return match?.group(0);
   }
 
   @override
@@ -615,11 +653,12 @@ class _HomePageState extends State<HomePage> {
           date.month == now.month &&
           date.day == now.day;
     }).toList();
-    if (mounted)
+    if (mounted) {
       setState(
         () =>
             _todayReadings = today.isEmpty ? readings.take(1).toList() : today,
       );
+    }
   }
 
   void _handleRfidEvent() {
@@ -827,12 +866,7 @@ class _HomePageState extends State<HomePage> {
         const SizedBox(height: 10),
         _QuickControls(
           enabled: _canControl,
-          onOpenMusic: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => _MusicModePage(settings: widget.settings),
-            ),
-          ),
-          onOpenYouTube: () => Navigator.of(context).push(
+          onOpenPlayer: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => YouTubePage(settings: widget.settings),
             ),
@@ -1353,35 +1387,17 @@ class _MqttLightingConsole extends StatelessWidget {
 class _QuickControls extends StatelessWidget {
   const _QuickControls({
     required this.enabled,
-    required this.onOpenMusic,
-    required this.onOpenYouTube,
+    required this.onOpenPlayer,
   });
   final bool enabled;
-  final VoidCallback onOpenMusic;
-  final VoidCallback onOpenYouTube;
+  final VoidCallback onOpenPlayer;
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Expanded(
-        child: _QuickButton(
-          icon: Icons.play_circle_outline_rounded,
-          label: '進入音樂模式',
-          primary: true,
-          enabled: enabled,
-          onTap: onOpenMusic,
-        ),
-      ),
-      const SizedBox(width: 10),
-      Expanded(
-        child: _QuickButton(
-          icon: Icons.ondemand_video_rounded,
-          label: 'YouTube 播放',
-          primary: false,
-          enabled: enabled,
-          onTap: onOpenYouTube,
-        ),
-      ),
-    ],
+  Widget build(BuildContext context) => _QuickButton(
+    icon: Icons.play_circle_outline_rounded,
+    label: '播放器',
+    primary: true,
+    enabled: enabled,
+    onTap: onOpenPlayer,
   );
 }
 
@@ -1429,377 +1445,7 @@ class _QuickButton extends StatelessWidget {
   );
 }
 
-class _MusicModePage extends StatefulWidget {
-  const _MusicModePage({required this.settings});
-  final MqttSettings settings;
-
-  @override
-  State<_MusicModePage> createState() => _MusicModePageState();
-}
-
-class _MusicModePageState extends State<_MusicModePage> {
-  bool _openingYouTube = false;
-  bool _sendingToSpeaker = false;
-  bool _stoppingSpeaker = false;
-  final _videoUrl = TextEditingController();
-  late final MqttMusicService _musicService;
-
-  @override
-  void initState() {
-    super.initState();
-    _musicService = MqttMusicService(widget.settings);
-    _musicService.connect();
-  }
-
-  @override
-  void dispose() {
-    _videoUrl.dispose();
-    _musicService.dispose();
-    super.dispose();
-  }
-
-  Future<void> _playOnSpeaker() async {
-    final url = _videoUrl.text.trim();
-    final uri = Uri.tryParse(url);
-    final host = uri?.host.toLowerCase().replaceFirst(RegExp(r'\.$'), '');
-    if (uri == null ||
-        !(uri.scheme == 'http' || uri.scheme == 'https') ||
-        !{
-          'youtu.be',
-          'youtube.com',
-          'www.youtube.com',
-          'm.youtube.com',
-        }.contains(host)) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('請貼上完整的 YouTube 影片連結。')));
-      return;
-    }
-    setState(() => _sendingToSpeaker = true);
-    final sent = await _musicService.play(url);
-    if (!mounted) return;
-    setState(() => _sendingToSpeaker = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(sent ? '已送出播放指令，等待樹莓派回報。' : '無法連線到樹莓派，請確認 MQTT 設定。'),
-      ),
-    );
-  }
-
-  Future<void> _stopSpeaker() async {
-    setState(() => _stoppingSpeaker = true);
-    final sent = await _musicService.stop();
-    if (!mounted) return;
-    setState(() => _stoppingSpeaker = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(sent ? '已要求樹莓派停止播放。' : '無法連線到樹莓派，請確認 MQTT 設定。')),
-    );
-  }
-
-  Future<void> _pasteUrl() async {
-    final clipboard = await Clipboard.getData(Clipboard.kTextPlain);
-    final text = clipboard?.text?.trim();
-    if (text == null || text.isEmpty) return;
-    _videoUrl.value = TextEditingValue(
-      text: text,
-      selection: TextSelection.collapsed(offset: text.length),
-    );
-  }
-
-  String _connectionLabel(MusicConnectionStatus value) {
-    switch (value) {
-      case MusicConnectionStatus.connected:
-        return '樹莓派已連線';
-      case MusicConnectionStatus.connecting:
-        return '正在連線樹莓派…';
-      case MusicConnectionStatus.failed:
-        return '樹莓派連線失敗';
-      case MusicConnectionStatus.disconnected:
-        return '樹莓派未連線';
-    }
-  }
-
-  String _playbackLabel(MusicState value) {
-    if (value.state == 'playing') return '正在播放樹莓派喇叭';
-    if (value.state == 'error') return value.message ?? '播放失敗';
-    if (value.state == 'stopped') return '目前沒有播放';
-    return value.message ?? '等待樹莓派回報';
-  }
-
-  Future<void> _openYouTube() async {
-    setState(() => _openingYouTube = true);
-    var opened = false;
-    try {
-      opened = await launchUrl(
-        Uri.parse('https://www.youtube.com/'),
-        mode: LaunchMode.externalNonBrowserApplication,
-      );
-      if (!opened) {
-        opened = await launchUrl(
-          Uri.parse('https://www.youtube.com/'),
-          mode: LaunchMode.inAppBrowserView,
-          browserConfiguration: const BrowserConfiguration(showTitle: true),
-        );
-      }
-    } catch (_) {
-      opened = false;
-    }
-    if (!mounted) return;
-    setState(() => _openingYouTube = false);
-    if (!opened) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('無法開啟 YouTube，請確認網路與瀏覽器後再試一次。')),
-      );
-    }
-  }
-
-  @override
-  Widget build(
-    BuildContext context,
-  ) => ValueListenableBuilder<MusicConnectionStatus>(
-    valueListenable: _musicService.status,
-    builder: (context, connection, _) => ValueListenableBuilder<MusicState>(
-      valueListenable: _musicService.state,
-      builder: (context, playback, _) => Scaffold(
-        appBar: AppBar(title: const Text('音樂模式')),
-        body: SafeArea(
-          top: false,
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
-                children: [
-                  Container(
-                    width: 56,
-                    height: 56,
-                    decoration: const BoxDecoration(
-                      color: AppColors.selectionSoft,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.music_note_rounded,
-                      color: AppColors.text,
-                      size: 30,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    '想聽什麼？',
-                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    '想用手機聽可以開啟 YouTube；想由樹莓派喇叭發聲，請貼上影片連結。',
-                    style: TextStyle(color: AppColors.muted, height: 1.5),
-                  ),
-                  const SizedBox(height: 28),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Row(
-                            children: [
-                              Icon(
-                                Icons.play_circle_fill_rounded,
-                                color: AppColors.red,
-                                size: 40,
-                              ),
-                              SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'YouTube',
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    SizedBox(height: 2),
-                                    Text(
-                                      '優先開啟 App，失敗時改用安全瀏覽器',
-                                      style: TextStyle(
-                                        color: AppColors.muted,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              onPressed: _openingYouTube ? null : _openYouTube,
-                              icon: _openingYouTube
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(Icons.open_in_new_rounded),
-                              label: Text(
-                                _openingYouTube ? '正在開啟…' : '開啟 YouTube',
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                connection == MusicConnectionStatus.connected &&
-                                        playback.isPlaying
-                                    ? Icons.volume_up_rounded
-                                    : Icons.speaker_rounded,
-                                color:
-                                    connection ==
-                                        MusicConnectionStatus.connected
-                                    ? AppColors.green
-                                    : AppColors.muted,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _connectionLabel(connection),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    Text(
-                                      _playbackLabel(playback),
-                                      style: const TextStyle(
-                                        color: AppColors.muted,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              if (connection ==
-                                  MusicConnectionStatus.connecting)
-                                const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                ),
-                              if (connection !=
-                                      MusicConnectionStatus.connected &&
-                                  connection !=
-                                      MusicConnectionStatus.connecting)
-                                IconButton(
-                                  onPressed: _musicService.connect,
-                                  tooltip: '重新連線',
-                                  icon: const Icon(Icons.refresh_rounded),
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 18),
-                          const Text(
-                            '樹莓派喇叭播放',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            '在 YouTube 點選「共享」後複製連結，再貼到這裡。',
-                            style: TextStyle(
-                              color: AppColors.muted,
-                              height: 1.45,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          TextField(
-                            controller: _videoUrl,
-                            keyboardType: TextInputType.url,
-                            decoration: InputDecoration(
-                              labelText: 'YouTube 影片連結',
-                              prefixIcon: Icon(Icons.link_rounded),
-                              helperText: '支援 youtube.com 與 youtu.be',
-                              suffixIcon: IconButton(
-                                onPressed: _pasteUrl,
-                                tooltip: '從剪貼簿貼上',
-                                icon: const Icon(Icons.content_paste_rounded),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              onPressed:
-                                  _sendingToSpeaker ||
-                                      connection !=
-                                          MusicConnectionStatus.connected
-                                  ? null
-                                  : _playOnSpeaker,
-                              icon: const Icon(Icons.speaker_rounded),
-                              label: Text(
-                                _sendingToSpeaker ? '正在傳送…' : '用樹莓派喇叭播放',
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          SizedBox(
-                            width: double.infinity,
-                            child: OutlinedButton.icon(
-                              onPressed:
-                                  _stoppingSpeaker ||
-                                      connection !=
-                                          MusicConnectionStatus.connected
-                                  ? null
-                                  : _stopSpeaker,
-                              icon: const Icon(Icons.stop_circle_outlined),
-                              label: Text(
-                                _stoppingSpeaker ? '正在停止…' : '停止樹莓派播放',
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    '樹莓派需安裝 mpv 與 yt-dlp，且喇叭必須是它的預設 ALSA 音訊輸出。',
-                    style: TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 13,
-                      height: 1.45,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-}
+// _MusicModePage removed — merged into YouTubePage (lib/youtube_page.dart).
 
 class _PresetRow extends StatelessWidget {
   const _PresetRow({

@@ -1,10 +1,11 @@
 import json
 import re
 import time
+
 import RPi.GPIO as GPIO
 from mfrc522 import SimpleMFRC522
 
-from .house_pi import bind_card, record_access, utc_now
+from .controller import bind_card, record_access, utc_now
 
 TOPIC_BIND = "house/rfid/bind"
 TOPIC_EVENT = "house/rfid/event"
@@ -64,7 +65,12 @@ class RFIDService:
             self._beep()
             event = {"type": "access_granted", "uid": uid, "member_id": card["member_id"], "member_name": card["member_name"], "at": now}
         else:
-            event = {"type": "access_denied", "uid": uid, "at": now}
+            # `poll` only calls this when the UID changes, so a card held in
+            # the reader cannot repeatedly trigger the alarm. Removing it
+            # produces None on the next poll and arms the next scan again.
+            self._alarm()
+            print(f"RFID 陌生卡片警報：{uid} ({now})")
+            event = {"type": "access_denied", "uid": uid, "alert": True, "at": now}
         self.publish(TOPIC_EVENT, event)
 
     @staticmethod
@@ -72,3 +78,14 @@ class RFIDService:
         GPIO.output(BUZZER_PIN, GPIO.HIGH)
         time.sleep(duration)
         GPIO.output(BUZZER_PIN, GPIO.LOW)
+
+    @staticmethod
+    def _alarm():
+        try:
+            for _ in range(3):
+                RFIDService._beep(0.12)
+                time.sleep(0.08)
+        except Exception as error:
+            # Keep the access_denied MQTT event useful even when the buzzer
+            # GPIO is unavailable or fails during a hardware test.
+            print(f"RFID 警報聲失敗：{error}")

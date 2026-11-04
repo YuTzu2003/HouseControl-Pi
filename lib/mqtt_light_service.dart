@@ -46,17 +46,15 @@ class MqttLightService {
 
   final MqttSettings _settings;
   MqttServerClient? _client;
-  StreamSubscription<List<MqttReceivedMessage<MqttMessage>>>? _updatesSubscription;
+  StreamSubscription<List<MqttReceivedMessage<MqttMessage>>>?
+  _updatesSubscription;
 
   final status = ValueNotifier(LightConnectionStatus.disconnected);
   final lightState = ValueNotifier(
     const LightState(on: false, mode: 'warm_white', brightness: 100),
   );
 
-  bool get isConfigured =>
-      _settings.host.isNotEmpty &&
-      _settings.username.isNotEmpty &&
-      _settings.password.isNotEmpty;
+  bool get isConfigured => _settings.host.isNotEmpty;
 
   Future<void> connect() async {
     if (!isConfigured) {
@@ -85,7 +83,7 @@ class MqttLightService {
     _client = client;
 
     try {
-      await client.connect(_settings.username, _settings.password);
+      await connectMqttClient(client, _settings);
       if (client.connectionStatus?.state != MqttConnectionState.connected) {
         status.value = LightConnectionStatus.failed;
         client.disconnect();
@@ -123,7 +121,8 @@ class MqttLightService {
 
   void setLight({bool? on, String? mode, double? brightness}) {
     final client = _client;
-    if (client?.connectionStatus?.state != MqttConnectionState.connected) return;
+    if (client?.connectionStatus?.state != MqttConnectionState.connected)
+      return;
     final current = lightState.value;
     lightState.value = LightState(
       on: on ?? current.on,

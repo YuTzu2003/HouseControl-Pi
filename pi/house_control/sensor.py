@@ -1,7 +1,9 @@
 import time
+
 import RPi.GPIO as GPIO
 
 DHT_PIN = 7
+
 
 def read_dht11():
     GPIO.setup(DHT_PIN, GPIO.OUT)
@@ -37,3 +39,10 @@ def read_dht11():
     if sum(data[:4]) & 0xFF != data[4]:
         return None
     return data[2] + data[3] / 10, data[0] + data[1] / 10
+
+if __name__ == "__main__":
+    GPIO.setmode(GPIO.BOARD)
+    try:
+        print(read_dht11())
+    finally:
+        GPIO.cleanup()

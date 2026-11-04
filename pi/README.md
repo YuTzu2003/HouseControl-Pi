@@ -1,232 +1,166 @@
-# 樹莓派部署與 App 連線操作手冊
+# Raspberry Pi 端
 
-本文件說明如何在樹莓派啟動家庭控制系統，以及讓電腦或手機 App 透過 MQTT 與 HTTP API 操作它。
-
-> 請將文件內的 `PI_IP` 替換成樹莓派在家中網路的 IP，例如 `192.168.1.50`。
-
-## 系統連線架構
+## 目錄職責
 
 ```text
-電腦／手機 App
-  ├─ MQTT（PI_IP:1883）──> 燈光、音樂、RFID 綁卡控制
-  └─ HTTP（PI_IP:8000）──> RFID、溫濕度、錄影片段查詢
-
-樹莓派
-  ├─ iot-control 主程式：RFID、燈光、音樂控制
-  ├─ FastAPI：提供 App 查詢資料
-  └─ house-camera systemd：持續錄影、分段 MP4、清理過期檔案
+pi/
+├── start_house_control.sh       # 唯一啟動、停止、日誌與 RGB 測試入口
+├── house_control.env.example    # 本機硬體設定範例（不提交）
+├── house_control/
+│   ├── api.py                   # FastAPI：供 App 讀寫排程、情境、紀錄與影片
+│   ├── controller.py            # MQTT 控制器、資料庫、排程與情境執行
+│   ├── light.py                 # RGB LED MQTT 控制
+│   ├── music.py                 # YouTube/mpv 音樂控制
+│   ├── rfid.py                  # RFID 卡片事件與綁定
+│   ├── sensor.py                # DHT11 感測器讀取
+    ├── camera.py                # 攝影機分段錄影與清理
+    └── config.py                # 錄影與攝影機共用設定
+└── tests/
+    ├── test_rfid.py             # RFID 手動讀卡測試
+    └── test_rgb_wiring.py       # RGB 接線測試
 ```
 
-## 一、樹莓派首次安裝
+`logs/`、`recordings/`、`run/`、`house-pi.db*`、`.venv/` 都是樹莓派執行後自動產生的資料，不應複製進 Git。`house_control.env` 是每台樹莓派自己的硬體設定，也不提交。
 
-### 1. 查詢樹莓派 IP
+`start_house_control.sh` 是單一啟動入口，會一起啟動攝影機、MQTT 控制器和 FastAPI。第一次執行若尚未建立 `.venv`，腳本會自動執行 `uv sync`（仍需先安裝 MQTT broker、`ffmpeg`、`mpv` 與相機／RFID 所需的系統套件；`yt-dlp` 會由 `uv sync` 安裝）。
 
 ```bash
-hostname -I
+cd ~/Desktop/IOT_Control/pi
+./start_house_control.sh
 ```
 
-### 2. 下載與安裝專案
+另外開一個終端機可以查狀態或停止：
 
 ```bash
-git clone https://github.com/YuTzu2003/HouseControl-Pi.git ~/Desktop/IOT_Control
-cd ~/Desktop/IOT_Control
-uv sync
+./start_house_control.sh status
+./start_house_control.sh stop
 ```
 
-更新既有專案：
+要即時查看樹莓派是否收到燈光、音樂或情境指令，可開另一個終端機執行：
 
 ```bash
-cd ~/Desktop/IOT_Control
-git pull
-uv sync
+./start_house_control.sh logs
 ```
 
-### 3. 安裝攝影、音訊與串流播放工具
+## MQTT 匿名連線
+
+目前樹莓派控制器與 App 預設使用匿名 MQTT，不需要 `MQTT_USER` 或密碼。Mosquitto 也必須允許匿名連線；在樹莓派設定檔加入或確認：
+
+```conf
+listener 1883 0.0.0.0
+allow_anonymous true
+```
+
+套用設定：
 
 ```bash
-sudo apt update
-sudo apt install -y ffmpeg v4l-utils alsa-utils mpv yt-dlp
+sudo systemctl restart mosquitto
+sudo systemctl status mosquitto
 ```
 
-查看 USB Webcam 與麥克風：
+App 的 MQTT 設定頁中，使用者名稱與密碼都留白即可。匿名 MQTT 只建議在可信任的區域網路使用，因為同網段裝置可以發送控制指令。
+
+所有服務的紀錄在 `logs/`：
+
+- `controller.log`：燈光、排程、RFID、音樂與情境執行
+- `api.log`：手機 API
+- `camera.log`：攝影機錄影
+
+排程資料與情境資料都存於 `house-pi.db`，重啟後會保留。排程由樹莓派本地時間判定，請先確認：
 
 ```bash
-v4l2-ctl --list-devices
-arecord -l
+timedatectl
+date
 ```
 
-USB Webcam 通常會顯示影像裝置，如 `/dev/video0`。若有內建麥克風，也會出現在 `arecord -l` 的輸出中。
+## 自動化資料
 
-## 二、攝影機循環錄影
+`/automations` 支援舊欄位 `time`／`action`，也支援新的 `start_time`、`end_time`、`start_action`、`end_action`、`start_mode`、`end_mode`、`start_brightness`、`end_brightness` 與 `scene_id`。星期使用 Python 的星期編號：週一 `0` 到週日 `6`。
 
-建立錄影與音樂資料夾：
-
-```bash
-sudo install -d -o pi -g pi /var/lib/house-control/recordings /var/lib/house-control/music
-```
-
-錄影服務預計使用以下設定：
-
-```ini
-# 60、120、180、240 或 300 秒；即每段 1～5 分鐘
-CAMERA_SEGMENT_SECONDS=300
-
-# 超過 20 分鐘的片段自動刪除
-CAMERA_RETENTION_MINUTES=20
-
-CAMERA_VIDEO_INPUT_ARGS="-f v4l2 -framerate 30 -video_size 1280x720 -input_format mjpeg -i /dev/video0"
-CAMERA_AUDIO_INPUT_ARGS="-f alsa -i default"
-```
-
-在啟用連續錄影前，可先測試 Webcam：
-
-```bash
-ffmpeg -f v4l2 -framerate 30 -video_size 1280x720 -i /dev/video0 \
-  -f alsa -i default -t 10 /tmp/webcam-test.mp4
-ffprobe /tmp/webcam-test.mp4
-```
-
-若 Webcam 不支援上述格式，查詢支援的解析度與格式：
-
-```bash
-v4l2-ctl -d /dev/video0 --list-formats-ext
-```
-
-啟用錄影服務（假設專案位於 `/home/pi/Desktop/IOT_Control`）：
-
-```bash
-cd ~/Desktop/IOT_Control
-chmod +x start_camera.sh
-sudo install -m 644 house-camera.service /etc/systemd/system/house-camera.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now house-camera
-sudo systemctl status house-camera --no-pager
-```
-
-查看最新片段與服務日誌：
-
-```bash
-ls -lh /var/lib/house-control/recordings
-journalctl -u house-camera -f
-```
-
-## 三、啟動目前已有的控制程式與 API
-
-### 樹莓派喇叭播放 YouTube 音樂
-
-先安裝播放器與 YouTube 擷取工具：
-
-```bash
-sudo apt update
-sudo apt install -y mpv yt-dlp
-```
-
-確認喇叭是樹莓派的預設輸出：
-
-```bash
-speaker-test -t wav -c 2
-```
-
-手機的「音樂模式」可貼上 YouTube 分享連結；App 會發送 MQTT 指令到樹莓派，樹莓派以 `mpv` 從預設 ALSA 喇叭輸出聲音。
-
-### 手機即時攝影機畫面
-
-重新啟動攝影機服務與 API 後，App 首頁會持續更新最新畫面。它與錄影服務共用同一個 webcam，不會另外佔用 `/dev/video0`：
-
-```bash
-sudo systemctl restart house-camera
-cd ~/Desktop/IOT_Control
-bash start_house_control.sh
-```
-
-可用瀏覽器先確認最新影像：`http://PI_IP:8000/camera/live.jpg`
-
-請開啟兩個樹莓派終端機。
-
-第一個終端機啟動 MQTT 控制器（RFID、燈光）：
-
-```bash
-cd ~/Desktop/IOT_Control
-uv run house_pi.py
-```
-
-第二個終端機啟動 App 查詢 API：
-
-```bash
-cd ~/Desktop/IOT_Control
-uv run uvicorn app.server:app --host 0.0.0.0 --port 8000
-```
-
-確認 API 正常：
-
-```bash
-curl http://localhost:8000/health
-```
-
-## 四、App 端連線設定
-
-| 用途 | 位址／Topic | 方法 |
-| --- | --- | --- |
-| MQTT Broker | `PI_IP:1883` | MQTT 連線 |
-| API 根網址 | `http://PI_IP:8000` | HTTP |
-| 燈光控制 | `house/room/light/set` | MQTT publish |
-| RFID 刷卡事件 | `house/rfid/event` | MQTT subscribe |
-| RFID 卡片 | `/rfid/cards` | HTTP GET |
-| 溫濕度 | `/dht11/readings` | HTTP GET |
-
-MQTT 設定目前在 `src/iot_control/house_pi.py`：
-
-```python
-MQTT_HOST = "127.0.0.1"
-MQTT_PORT = 1883
-MQTT_USER = "houseapp"
-MQTT_PASSWORD = "123456"
-```
-
-> App 的 MQTT Host 必須設定為 `PI_IP`，不是 `127.0.0.1`；後者只代表 App 自己的裝置。
-
-建議將 IP、帳密與 API URL 放入 App 的設定檔或 `.env`，不要寫死在程式碼中。
-
-## 五、App 控制範例
-
-### 燈光控制
-
-發佈到 `house/room/light/set`：
+`/scenes` 的動作格式例如：
 
 ```json
 {
-  "on": true,
-  "mode": "warm_white",
-  "brightness": 75
+  "name": "電影模式",
+  "actions": [
+    {"device": "light", "on": true, "mode": "warm_yellow", "brightness": 20},
+    {"device": "music", "command": "stop"}
+  ],
+  "enabled": true
 }
 ```
 
-### 查詢資料
+情境會透過 `house/scene/execute` 執行，結果發佈到 `house/scene/result`。陌生 RFID 卡片會發佈 `house/rfid/event` 的 `access_denied`，並在卡片離開感應區後才重新武裝下一次警報。
 
-```text
-GET http://PI_IP:8000/rfid/cards
-GET http://PI_IP:8000/dht11/readings
-```
+## RGB 燈光校正
 
-## 六、從電腦端測試
+預設假設實體腳位 `29`、`31`、`33` 依序接到 RGB 燈的紅、綠、藍通道，且燈具是共陰極。若所有模式都偏紅、顏色對不上，先確認接線與燈具類型。
 
-在已安裝 `mosquitto-clients` 的電腦執行：
+先執行可重現的接線測試。測試和 MQTT 控制器會共用 GPIO，請先停止服務：
 
 ```bash
-mosquitto_pub -h PI_IP -u houseapp -P 123456 \
-  -t house/room/light/set \
-  -m '{"on":true,"mode":"warm_white","brightness":75}'
+./start_house_control.sh stop
+./start_house_control.sh led-test
 ```
 
-查詢 API：
+測試會依序顯示紅、綠、藍、白、關閉，各三秒。若三種顏色都有顯示但順序錯誤，將校正永久存入本機設定，不必每次輸入 `export`：
 
 ```bash
-curl http://PI_IP:8000/rfid/cards
-curl http://PI_IP:8000/dht11/readings
+cp house_control.env.example house_control.env
+nano house_control.env
+./start_house_control.sh
 ```
 
-## 七、注意事項
+例如腳位 `29`、`31`、`33` 實際分別接到藍、紅、綠通道時，將 `house_control.env` 改為：
 
-- 樹莓派、電腦與手機需連到同一個內網，或透過 VPN 安全連線。
-- 不要把 MQTT 的 1883 port 或 API 的 8000 port 直接轉發到公開網際網路。
-- 加入攝影與音樂功能後，再依本文件第二節的 Webcam 測試與設定步驟執行。
+```bash
+HOUSE_CONTROL_LED_CHANNEL_ORDER=brg
+```
+
+若 RGB 燈或驅動器是共陽極，也在 `house_control.env` 加入：
+
+```bash
+HOUSE_CONTROL_LED_COMMON_ANODE=true
+```
+
+eMeet M0 USB 喇叭的音訊輸出也放在同一個 `house_control.env`，讓背景服務可使用正確喇叭：
+
+```bash
+HOUSE_CONTROL_AUDIO_DEVICE=pipewire/alsa_output.usb-EMEET_eMeet_M0_000000000000000000000654d6565742020200731b6ab7643a2e3eMeet_M0-00.analog-stereo
+```
+
+可用以下指令確認樹莓派有收到不同模式（需安裝 `mosquitto-clients`）：
+
+```bash
+mosquitto_pub -h 127.0.0.1 -t house/room/light/set -m '{"on":true,"mode":"warm_yellow","brightness":100}'
+mosquitto_pub -h 127.0.0.1 -t house/room/light/set -m '{"on":true,"mode":"cool_white","brightness":100}'
+```
+
+若 MQTT 狀態已改變但實體燈仍完全只有紅色，代表綠／藍通道接線、限流電阻、共用腳或 RGB 驅動電路需要檢查。
+
+## 喇叭播放故障排查
+
+音樂播放需要樹莓派安裝 `mpv`，並讓專案環境包含 `yt-dlp`：
+
+```bash
+sudo apt update
+sudo apt install -y mpv alsa-utils
+uv sync
+```
+
+先確認樹莓派本身能出聲，再從 App 播放：
+
+```bash
+speaker-test -t wav -c 2
+which mpv
+.venv/bin/yt-dlp --version
+```
+
+App 會顯示樹莓派回傳的播放錯誤；詳細的 `mpv` 錯誤會寫在 `logs/controller.log`。若預設音效裝置不是正確的喇叭，先單獨列出裝置，再依輸出的名稱設定環境變數：
+
+```bash
+mpv --audio-device=help
+nano house_control.env
+# 在 house_control.env 填入：HOUSE_CONTROL_AUDIO_DEVICE=<你的裝置名稱>
+./start_house_control.sh
+```

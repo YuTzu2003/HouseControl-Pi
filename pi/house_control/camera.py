@@ -38,6 +38,7 @@ def record_segment() -> bool:
     partial_recording = RECORDINGS_DIR / f"{started_at}.partial.mp4"
     command = [
         "ffmpeg",
+        "-y",
         "-nostdin",
         "-hide_banner",
         "-loglevel",

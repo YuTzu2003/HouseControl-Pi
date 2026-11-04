@@ -59,6 +59,14 @@ app.*.map.json
 .env
 .env.*
 !.env.example
+pi/house_control.env
+pi/.venv/
+pi/dist/
+pi/logs/
+pi/recordings/
+pi/run/
+pi/house-pi.db*
+pi/**/__pycache__/
 key.properties
 *.jks
 *.keystore
@@ -67,3 +75,5 @@ key.properties
 .widget_preview/
 *.txt
 .agents/
+.claude/
+.codegraph/

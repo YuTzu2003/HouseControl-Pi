@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
-from iot_control.house_pi import (
+from house_control.controller import (
     delete_automation,
     delete_scene,
     get_card,
@@ -18,7 +18,7 @@ from iot_control.house_pi import (
     save_automation,
     save_scene,
 )
-from iot_control.config import LIVE_FRAME_PATH, RECORDINGS_DIR
+from house_control.config import LIVE_FRAME_PATH, RECORDINGS_DIR
 
 app = FastAPI(title="IOT Control RFID API", version="1.0.0")
 class Card(BaseModel):

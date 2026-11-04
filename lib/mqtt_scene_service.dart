@@ -47,7 +47,7 @@ class MqttSceneService {
     final completer = Completer<SceneExecutionResult?>();
     StreamSubscription<List<MqttReceivedMessage<MqttMessage>>>? updates;
     try {
-      await client.connect(_settings.username, _settings.password);
+      await connectMqttClient(client, _settings);
       if (client.connectionStatus?.state != MqttConnectionState.connected) {
         return null;
       }

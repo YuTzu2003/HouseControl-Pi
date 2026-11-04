@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
@@ -12,6 +13,7 @@ import 'mqtt_music_service.dart';
 import 'mqtt_rfid_service.dart';
 import 'mqtt_scene_service.dart';
 import 'mqtt_settings.dart';
+import 'youtube_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -420,16 +422,32 @@ class _MqttSetupPageState extends State<MqttSetupPage> {
                           },
                         ),
                         const SizedBox(height: 16),
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            '若 MQTT broker 開放匿名連線，使用者名稱與密碼都可以留白。',
+                            style: TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 13,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
                         TextFormField(
                           controller: _username,
                           autocorrect: false,
                           decoration: const InputDecoration(
-                            labelText: 'MQTT 使用者名稱',
+                            labelText: 'MQTT 使用者名稱（可留白）',
                             prefixIcon: Icon(Icons.person_outline_rounded),
                           ),
-                          validator: (value) => (value?.trim().isEmpty ?? true)
-                              ? '請輸入使用者名稱'
-                              : null,
+                          validator: (value) {
+                            if ((value?.trim().isEmpty ?? true) &&
+                                _password.text.isNotEmpty) {
+                              return '有設定密碼時，請同時輸入使用者名稱';
+                            }
+                            return null;
+                          },
                         ),
                         const SizedBox(height: 16),
                         TextFormField(
@@ -438,11 +456,16 @@ class _MqttSetupPageState extends State<MqttSetupPage> {
                           enableSuggestions: false,
                           autocorrect: false,
                           decoration: const InputDecoration(
-                            labelText: 'MQTT 密碼',
+                            labelText: 'MQTT 密碼（可留白）',
                             prefixIcon: Icon(Icons.lock_outline_rounded),
                           ),
-                          validator: (value) =>
-                              (value?.isEmpty ?? true) ? '請輸入 MQTT 密碼' : null,
+                          validator: (value) {
+                            if ((value?.isEmpty ?? true) &&
+                                _username.text.trim().isNotEmpty) {
+                              return '有設定使用者名稱時，請同時輸入密碼';
+                            }
+                            return null;
+                          },
                         ),
                         const SizedBox(height: 24),
                         SizedBox(
@@ -807,6 +830,11 @@ class _HomePageState extends State<HomePage> {
           onOpenMusic: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => _MusicModePage(settings: widget.settings),
+            ),
+          ),
+          onOpenYouTube: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => YouTubePage(settings: widget.settings),
             ),
           ),
         ),
@@ -1323,16 +1351,37 @@ class _MqttLightingConsole extends StatelessWidget {
 }
 
 class _QuickControls extends StatelessWidget {
-  const _QuickControls({required this.enabled, required this.onOpenMusic});
+  const _QuickControls({
+    required this.enabled,
+    required this.onOpenMusic,
+    required this.onOpenYouTube,
+  });
   final bool enabled;
   final VoidCallback onOpenMusic;
+  final VoidCallback onOpenYouTube;
   @override
-  Widget build(BuildContext context) => _QuickButton(
-    icon: Icons.play_circle_outline_rounded,
-    label: '進入音樂模式',
-    primary: true,
-    enabled: enabled,
-    onTap: onOpenMusic,
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(
+        child: _QuickButton(
+          icon: Icons.play_circle_outline_rounded,
+          label: '進入音樂模式',
+          primary: true,
+          enabled: enabled,
+          onTap: onOpenMusic,
+        ),
+      ),
+      const SizedBox(width: 10),
+      Expanded(
+        child: _QuickButton(
+          icon: Icons.ondemand_video_rounded,
+          label: 'YouTube 播放',
+          primary: false,
+          enabled: enabled,
+          onTap: onOpenYouTube,
+        ),
+      ),
+    ],
   );
 }
 
@@ -1393,38 +1442,87 @@ class _MusicModePageState extends State<_MusicModePage> {
   bool _sendingToSpeaker = false;
   bool _stoppingSpeaker = false;
   final _videoUrl = TextEditingController();
+  late final MqttMusicService _musicService;
+
+  @override
+  void initState() {
+    super.initState();
+    _musicService = MqttMusicService(widget.settings);
+    _musicService.connect();
+  }
 
   @override
   void dispose() {
     _videoUrl.dispose();
+    _musicService.dispose();
     super.dispose();
   }
 
   Future<void> _playOnSpeaker() async {
     final url = _videoUrl.text.trim();
-    final host = Uri.tryParse(url)?.host;
-    if (host == null || !(host == 'youtu.be' || host.endsWith('youtube.com'))) {
+    final uri = Uri.tryParse(url);
+    final host = uri?.host.toLowerCase().replaceFirst(RegExp(r'\.$'), '');
+    if (uri == null ||
+        !(uri.scheme == 'http' || uri.scheme == 'https') ||
+        !{
+          'youtu.be',
+          'youtube.com',
+          'www.youtube.com',
+          'm.youtube.com',
+        }.contains(host)) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('請貼上完整的 YouTube 影片連結。')));
       return;
     }
     setState(() => _sendingToSpeaker = true);
-    final sent = await MqttMusicService(widget.settings).play(url);
+    final sent = await _musicService.play(url);
     if (!mounted) return;
     setState(() => _sendingToSpeaker = false);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(sent ? '已傳送給樹莓派嗇叭播放。' : '無法傳送給樹莓派，請確認 MQTT 連線。')),
+      SnackBar(
+        content: Text(sent ? '已送出播放指令，等待樹莓派回報。' : '無法連線到樹莓派，請確認 MQTT 設定。'),
+      ),
     );
   }
 
   Future<void> _stopSpeaker() async {
     setState(() => _stoppingSpeaker = true);
-    final sent = await MqttMusicService(widget.settings).stop();
+    final sent = await _musicService.stop();
     if (!mounted) return;
     setState(() => _stoppingSpeaker = false);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(sent ? '已要求樹莓派停止播放。' : '無法傳送停止指令，請確認 MQTT 連線。')),
+      SnackBar(content: Text(sent ? '已要求樹莓派停止播放。' : '無法連線到樹莓派，請確認 MQTT 設定。')),
     );
+  }
+
+  Future<void> _pasteUrl() async {
+    final clipboard = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = clipboard?.text?.trim();
+    if (text == null || text.isEmpty) return;
+    _videoUrl.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+
+  String _connectionLabel(MusicConnectionStatus value) {
+    switch (value) {
+      case MusicConnectionStatus.connected:
+        return '樹莓派已連線';
+      case MusicConnectionStatus.connecting:
+        return '正在連線樹莓派…';
+      case MusicConnectionStatus.failed:
+        return '樹莓派連線失敗';
+      case MusicConnectionStatus.disconnected:
+        return '樹莓派未連線';
+    }
+  }
+
+  String _playbackLabel(MusicState value) {
+    if (value.state == 'playing') return '正在播放樹莓派喇叭';
+    if (value.state == 'error') return value.message ?? '播放失敗';
+    if (value.state == 'stopped') return '目前沒有播放';
+    return value.message ?? '等待樹莓派回報';
   }
 
   Future<void> _openYouTube() async {
@@ -1455,159 +1553,247 @@ class _MusicModePageState extends State<_MusicModePage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('音樂模式')),
-    body: SafeArea(
-      top: false,
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
-            children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: const BoxDecoration(
-                  color: AppColors.selectionSoft,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.music_note_rounded,
-                  color: AppColors.text,
-                  size: 30,
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                '想聽什麼？',
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                '想用手機聽可以開啟 YouTube；想由樹莓派嗇叭發聲，請貼上影片連結。',
-                style: TextStyle(color: AppColors.muted, height: 1.5),
-              ),
-              const SizedBox(height: 28),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Row(
+  Widget build(
+    BuildContext context,
+  ) => ValueListenableBuilder<MusicConnectionStatus>(
+    valueListenable: _musicService.status,
+    builder: (context, connection, _) => ValueListenableBuilder<MusicState>(
+      valueListenable: _musicService.state,
+      builder: (context, playback, _) => Scaffold(
+        appBar: AppBar(title: const Text('音樂模式')),
+        body: SafeArea(
+          top: false,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
+                children: [
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: const BoxDecoration(
+                      color: AppColors.selectionSoft,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.music_note_rounded,
+                      color: AppColors.text,
+                      size: 30,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    '想聽什麼？',
+                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '想用手機聽可以開啟 YouTube；想由樹莓派喇叭發聲，請貼上影片連結。',
+                    style: TextStyle(color: AppColors.muted, height: 1.5),
+                  ),
+                  const SizedBox(height: 28),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.play_circle_fill_rounded,
-                            color: AppColors.red,
-                            size: 40,
+                          const Row(
+                            children: [
+                              Icon(
+                                Icons.play_circle_fill_rounded,
+                                color: AppColors.red,
+                                size: 40,
+                              ),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'YouTube',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    SizedBox(height: 2),
+                                    Text(
+                                      '優先開啟 App，失敗時改用安全瀏覽器',
+                                      style: TextStyle(
+                                        color: AppColors.muted,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'YouTube',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                SizedBox(height: 2),
-                                Text(
-                                  '優先開啟 App，失敗時改用安全瀏覽器',
-                                  style: TextStyle(
-                                    color: AppColors.muted,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed: _openingYouTube ? null : _openYouTube,
+                              icon: _openingYouTube
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.open_in_new_rounded),
+                              label: Text(
+                                _openingYouTube ? '正在開啟…' : '開啟 YouTube',
+                              ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 20),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: _openingYouTube ? null : _openYouTube,
-                          icon: _openingYouTube
-                              ? const SizedBox(
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                connection == MusicConnectionStatus.connected &&
+                                        playback.isPlaying
+                                    ? Icons.volume_up_rounded
+                                    : Icons.speaker_rounded,
+                                color:
+                                    connection ==
+                                        MusicConnectionStatus.connected
+                                    ? AppColors.green
+                                    : AppColors.muted,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _connectionLabel(connection),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    Text(
+                                      _playbackLabel(playback),
+                                      style: const TextStyle(
+                                        color: AppColors.muted,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (connection ==
+                                  MusicConnectionStatus.connecting)
+                                const SizedBox(
                                   width: 18,
                                   height: 18,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
                                   ),
-                                )
-                              : const Icon(Icons.open_in_new_rounded),
-                          label: Text(_openingYouTube ? '正在開啟…' : '開啟 YouTube'),
-                        ),
+                                ),
+                              if (connection !=
+                                      MusicConnectionStatus.connected &&
+                                  connection !=
+                                      MusicConnectionStatus.connecting)
+                                IconButton(
+                                  onPressed: _musicService.connect,
+                                  tooltip: '重新連線',
+                                  icon: const Icon(Icons.refresh_rounded),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 18),
+                          const Text(
+                            '樹莓派喇叭播放',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            '在 YouTube 點選「共享」後複製連結，再貼到這裡。',
+                            style: TextStyle(
+                              color: AppColors.muted,
+                              height: 1.45,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextField(
+                            controller: _videoUrl,
+                            keyboardType: TextInputType.url,
+                            decoration: InputDecoration(
+                              labelText: 'YouTube 影片連結',
+                              prefixIcon: Icon(Icons.link_rounded),
+                              helperText: '支援 youtube.com 與 youtu.be',
+                              suffixIcon: IconButton(
+                                onPressed: _pasteUrl,
+                                tooltip: '從剪貼簿貼上',
+                                icon: const Icon(Icons.content_paste_rounded),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed:
+                                  _sendingToSpeaker ||
+                                      connection !=
+                                          MusicConnectionStatus.connected
+                                  ? null
+                                  : _playOnSpeaker,
+                              icon: const Icon(Icons.speaker_rounded),
+                              label: Text(
+                                _sendingToSpeaker ? '正在傳送…' : '用樹莓派喇叭播放',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed:
+                                  _stoppingSpeaker ||
+                                      connection !=
+                                          MusicConnectionStatus.connected
+                                  ? null
+                                  : _stopSpeaker,
+                              icon: const Icon(Icons.stop_circle_outlined),
+                              label: Text(
+                                _stoppingSpeaker ? '正在停止…' : '停止樹莓派播放',
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '樹莓派嗇叭播放',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        '在 YouTube 點選「共享」後複製連結，再貼到這裡。',
-                        style: TextStyle(color: AppColors.muted, height: 1.45),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _videoUrl,
-                        keyboardType: TextInputType.url,
-                        decoration: const InputDecoration(
-                          labelText: 'YouTube 影片連結',
-                          prefixIcon: Icon(Icons.link_rounded),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: _sendingToSpeaker ? null : _playOnSpeaker,
-                          icon: const Icon(Icons.speaker_rounded),
-                          label: Text(_sendingToSpeaker ? '正在傳送…' : '用樹莓派嗇叭播放'),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: _stoppingSpeaker ? null : _stopSpeaker,
-                          icon: const Icon(Icons.stop_circle_outlined),
-                          label: Text(_stoppingSpeaker ? '正在停止…' : '停止樹莓派播放'),
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 16),
+                  const Text(
+                    '樹莓派需安裝 mpv 與 yt-dlp，且喇叭必須是它的預設 ALSA 音訊輸出。',
+                    style: TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 13,
+                      height: 1.45,
+                    ),
                   ),
-                ),
+                ],
               ),
-              const SizedBox(height: 16),
-              const Text(
-                '樹莓派需安裝 mpv 與 yt-dlp，且嗇叭必須是它的預設 ALSA 音訊輸出。',
-                style: TextStyle(
-                  color: AppColors.muted,
-                  fontSize: 13,
-                  height: 1.45,
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1871,7 +2057,7 @@ class _AutomationPageState extends State<AutomationPage> {
                 child: ListTile(
                   leading: const Icon(Icons.movie_filter_outlined),
                   title: Text(scene.name),
-                  subtitle: Text('${scene.actions.length} 個設備動作'),
+                  subtitle: Text(_sceneSummary(scene)),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -1960,6 +2146,17 @@ String _sceneFailureMessage(SceneExecutionResult result) {
       .where((message) => message.isNotEmpty)
       .join('、');
   return failed.isEmpty ? '請查看樹莓派記錄' : failed;
+}
+
+String _sceneSummary(Scene scene) {
+  final lightCount = scene.actions
+      .where((action) => action.device == 'light')
+      .length;
+  final hasMusic = scene.actions.any((action) => action.device == 'music');
+  final parts = <String>[];
+  if (lightCount > 0) parts.add('$lightCount 組燈光');
+  if (hasMusic) parts.add('音樂');
+  return parts.isEmpty ? '${scene.actions.length} 個設備動作' : parts.join(' + ');
 }
 
 TimeOfDay _parseTime(String value) {
@@ -2284,11 +2481,28 @@ class _SceneEditor extends StatefulWidget {
   State<_SceneEditor> createState() => _SceneEditorState();
 }
 
+class _SceneLightDraft {
+  _SceneLightDraft({
+    this.on = true,
+    this.mode = 'warm_yellow',
+    this.brightness = 20,
+  });
+
+  factory _SceneLightDraft.fromAction(SceneAction action) => _SceneLightDraft(
+    on: action.on ?? true,
+    mode: action.mode ?? 'warm_yellow',
+    brightness: action.brightness ?? 20,
+  );
+
+  bool on;
+  String mode;
+  double brightness;
+}
+
 class _SceneEditorState extends State<_SceneEditor> {
   late final TextEditingController _name, _url;
-  bool _includeLight = true, _lightOn = true, _includeMusic = false;
-  String _mode = 'warm_yellow';
-  double _brightness = 20;
+  late final List<_SceneLightDraft> _lights;
+  bool _includeMusic = false;
   String _musicCommand = 'play';
 
   @override
@@ -2301,14 +2515,11 @@ class _SceneEditorState extends State<_SceneEditor> {
     final musicActions =
         scene?.actions.where((action) => action.device == 'music').toList() ??
         const <SceneAction>[];
-    final light = lightActions.isEmpty ? null : lightActions.first;
     final music = musicActions.isEmpty ? null : musicActions.first;
     _name = TextEditingController(text: scene?.name ?? '電影模式');
     _url = TextEditingController(text: music?.url ?? '');
-    _includeLight = light != null || scene == null;
-    _lightOn = light?.on ?? true;
-    _mode = light?.mode ?? 'warm_yellow';
-    _brightness = light?.brightness ?? 20;
+    _lights = lightActions.map(_SceneLightDraft.fromAction).toList();
+    if (scene == null && _lights.isEmpty) _lights.add(_SceneLightDraft());
     _includeMusic = music != null;
     _musicCommand = music?.command ?? 'play';
   }
@@ -2320,6 +2531,114 @@ class _SceneEditorState extends State<_SceneEditor> {
     super.dispose();
   }
 
+  void _addLight() {
+    if (_lights.length + (_includeMusic ? 1 : 0) >= 20) return;
+    setState(() => _lights.add(_SceneLightDraft()));
+  }
+
+  void _removeLight(int index) {
+    setState(() => _lights.removeAt(index));
+  }
+
+  Future<void> _pasteMusicUrl() async {
+    final clipboard = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = clipboard?.text?.trim();
+    if (text == null || text.isEmpty) return;
+    _url.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+
+  bool _isYouTubeUrl(String url) {
+    final uri = Uri.tryParse(url);
+    final host = uri?.host.toLowerCase().replaceFirst(RegExp(r'\.$'), '');
+    return uri != null &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        {
+          'youtu.be',
+          'youtube.com',
+          'www.youtube.com',
+          'm.youtube.com',
+        }.contains(host);
+  }
+
+  Widget _buildLightEditor(int index) {
+    final light = _lights[index];
+    return Container(
+      margin: EdgeInsets.only(top: index == 0 ? 14 : 10),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+      decoration: BoxDecoration(
+        color: AppColors.selectionSoft,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.lightbulb_outline_rounded, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '燈光 ${index + 1}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              IconButton(
+                onPressed: () => _removeLight(index),
+                tooltip: '移除這組燈光',
+                icon: const Icon(Icons.delete_outline_rounded),
+              ),
+            ],
+          ),
+          DropdownButtonFormField<bool>(
+            initialValue: light.on,
+            decoration: const InputDecoration(labelText: '燈光狀態'),
+            items: const [
+              DropdownMenuItem(value: true, child: Text('開燈')),
+              DropdownMenuItem(value: false, child: Text('關燈')),
+            ],
+            onChanged: (value) {
+              if (value != null) setState(() => light.on = value);
+            },
+          ),
+          if (light.on) ...[
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              initialValue: light.mode,
+              decoration: const InputDecoration(labelText: '燈光模式'),
+              items: const [
+                DropdownMenuItem(value: 'warm_yellow', child: Text('暖黃光')),
+                DropdownMenuItem(value: 'warm_white', child: Text('暖白光')),
+                DropdownMenuItem(value: 'natural_white', child: Text('自然白')),
+                DropdownMenuItem(value: 'cool_white', child: Text('冷白光')),
+              ],
+              onChanged: (value) {
+                if (value != null) setState(() => light.mode = value);
+              },
+            ),
+            Row(
+              children: [
+                const Icon(Icons.brightness_6_outlined),
+                Expanded(
+                  child: Slider(
+                    value: light.brightness,
+                    min: 0,
+                    max: 100,
+                    onChanged: (value) =>
+                        setState(() => light.brightness = value),
+                  ),
+                ),
+                Text('${light.brightness.round()}%'),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   void _submit() {
     final name = _name.text.trim();
     final actions = <SceneAction>[];
@@ -2328,28 +2647,31 @@ class _SceneEditorState extends State<_SceneEditor> {
           .showSnackBar(const SnackBar(content: Text('請輸入情境名稱')));
       return;
     }
-    if (_includeLight)
+    for (final light in _lights) {
       actions.add(
         SceneAction(
           device: 'light',
-          on: _lightOn,
-          mode: _mode,
-          brightness: _brightness,
+          on: light.on,
+          mode: light.mode,
+          brightness: light.brightness,
         ),
       );
+    }
     if (_includeMusic) {
-      if (_musicCommand == 'play' && _url.text.trim().isEmpty) {
+      final url = _url.text.trim();
+      if (_musicCommand == 'play' && !_isYouTubeUrl(url)) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('播放音樂需要 YouTube 連結')));
+            .showSnackBar(const SnackBar(content: Text('請貼上完整的 YouTube 影片連結')));
         return;
       }
       actions.add(
-        SceneAction(
-          device: 'music',
-          command: _musicCommand,
-          url: _url.text.trim(),
-        ),
+        SceneAction(device: 'music', command: _musicCommand, url: url),
       );
+    }
+    if (actions.length > 20) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('一個情境最多只能有 20 個設備動作')));
+      return;
     }
     if (actions.isEmpty) {
       ScaffoldMessenger.of(context)
@@ -2394,89 +2716,132 @@ class _SceneEditorState extends State<_SceneEditor> {
               ),
             ),
             const SizedBox(height: 14),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('控制燈光'),
-              value: _includeLight,
-              onChanged: (value) => setState(() => _includeLight = value),
-            ),
-            if (_includeLight) ...[
-              DropdownButtonFormField<bool>(
-                initialValue: _lightOn,
-                decoration: const InputDecoration(labelText: '燈光狀態'),
-                items: const [
-                  DropdownMenuItem(value: true, child: Text('開燈')),
-                  DropdownMenuItem(value: false, child: Text('關燈')),
-                ],
-                onChanged: (value) {
-                  if (value != null) setState(() => _lightOn = value);
-                },
-              ),
-              if (_lightOn) ...[
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  initialValue: _mode,
-                  decoration: const InputDecoration(labelText: '燈光模式'),
-                  items: const [
-                    DropdownMenuItem(value: 'warm_yellow', child: Text('暖黃光')),
-                    DropdownMenuItem(value: 'warm_white', child: Text('暖白光')),
-                    DropdownMenuItem(
-                      value: 'natural_white',
-                      child: Text('自然白'),
-                    ),
-                    DropdownMenuItem(value: 'cool_white', child: Text('冷白光')),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) setState(() => _mode = value);
-                  },
-                ),
-                Row(
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.brightness_6_outlined),
-                    Expanded(
-                      child: Slider(
-                        value: _brightness,
-                        min: 0,
-                        max: 100,
-                        onChanged: (value) =>
-                            setState(() => _brightness = value),
-                      ),
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '燈光動作',
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                              SizedBox(height: 3),
+                              Text(
+                                '同一情境可加入多組燈光設定，會依序套用。',
+                                style: TextStyle(
+                                  color: AppColors.muted,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed:
+                              _lights.length + (_includeMusic ? 1 : 0) >= 20
+                              ? null
+                              : _addLight,
+                          icon: const Icon(Icons.add_rounded),
+                          label: const Text('新增燈光'),
+                        ),
+                      ],
                     ),
-                    Text('${_brightness.round()}%'),
+                    if (_lights.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 14),
+                        child: Text(
+                          '目前沒有燈光動作；如果只想播放音樂，可以保持空白。',
+                          style: TextStyle(color: AppColors.muted),
+                        ),
+                      )
+                    else
+                      for (var index = 0; index < _lights.length; index++)
+                        _buildLightEditor(index),
                   ],
                 ),
-              ],
-            ],
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('控制樹莓派音樂'),
-              value: _includeMusic,
-              onChanged: (value) => setState(() => _includeMusic = value),
-            ),
-            if (_includeMusic) ...[
-              DropdownButtonFormField<String>(
-                initialValue: _musicCommand,
-                decoration: const InputDecoration(labelText: '音樂動作'),
-                items: const [
-                  DropdownMenuItem(value: 'play', child: Text('播放音樂')),
-                  DropdownMenuItem(value: 'stop', child: Text('停止播放')),
-                ],
-                onChanged: (value) {
-                  if (value != null) setState(() => _musicCommand = value);
-                },
               ),
-              if (_musicCommand == 'play') ...[
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _url,
-                  keyboardType: TextInputType.url,
-                  decoration: const InputDecoration(
-                    labelText: 'YouTube 連結',
-                    prefixIcon: Icon(Icons.link_rounded),
-                  ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.music_note_rounded),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '音樂動作',
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                              SizedBox(height: 3),
+                              Text(
+                                '可讓情境同時播放或停止樹莓派喇叭。',
+                                style: TextStyle(
+                                  color: AppColors.muted,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: _includeMusic,
+                          onChanged: (value) =>
+                              setState(() => _includeMusic = value),
+                        ),
+                      ],
+                    ),
+                    if (_includeMusic) ...[
+                      const Divider(height: 24),
+                      DropdownButtonFormField<String>(
+                        initialValue: _musicCommand,
+                        decoration: const InputDecoration(labelText: '音樂動作'),
+                        items: const [
+                          DropdownMenuItem(value: 'play', child: Text('播放音樂')),
+                          DropdownMenuItem(value: 'stop', child: Text('停止播放')),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _musicCommand = value);
+                          }
+                        },
+                      ),
+                      if (_musicCommand == 'play') ...[
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: _url,
+                          keyboardType: TextInputType.url,
+                          decoration: InputDecoration(
+                            labelText: 'YouTube 影片連結',
+                            helperText: '支援 youtube.com 與 youtu.be',
+                            prefixIcon: const Icon(Icons.link_rounded),
+                            suffixIcon: IconButton(
+                              onPressed: _pasteMusicUrl,
+                              tooltip: '從剪貼簿貼上',
+                              icon: const Icon(Icons.content_paste_rounded),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ],
                 ),
-              ],
-            ],
+              ),
+            ),
             const SizedBox(height: 18),
             SizedBox(
               width: double.infinity,

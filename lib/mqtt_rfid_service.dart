@@ -55,7 +55,7 @@ class MqttRfidService {
           .startClean();
     _client = client;
     try {
-      await client.connect(_settings.username, _settings.password);
+      await connectMqttClient(client, _settings);
       if (client.connectionStatus?.state != MqttConnectionState.connected)
         return false;
       _updates ??= client.updates?.listen((messages) {

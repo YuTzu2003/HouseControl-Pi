@@ -1,5 +1,3 @@
-#!/usr/bin/env bash
-# 一鍵啟動 House Control：攝影機錄影、RFID／燈光／音樂 MQTT 控制器與 FastAPI。
 set -Eeuo pipefail
 
 PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,6 +16,11 @@ if [[ ! -x "$PYTHON_BIN" || ! -x "$UVICORN_BIN" ]]; then
 fi
 
 cd "$PROJECT_DIR"
+if [[ -f "$PROJECT_DIR/house_control.env" ]]; then
+  set -a
+  source "$PROJECT_DIR/house_control.env"
+  set +a
+fi
 mkdir -p logs
 mkdir -p recordings
 mkdir -p "$PID_DIR"
@@ -59,10 +62,25 @@ case "${1:-start}" in
     status_services
     exit 0
     ;;
+  logs)
+    mkdir -p logs
+    touch logs/controller.log
+    tail -n 50 -f logs/controller.log
+    exit 0
+    ;;
+  led-test)
+    controller_pid="$(read_pid controller)"
+    if [[ "$controller_pid" =~ ^[0-9]+$ ]] && kill -0 "$controller_pid" 2>/dev/null; then
+      echo "Stop House Control before the RGB test: $0 stop" >&2
+      exit 1
+    fi
+    "$PYTHON_BIN" -m tests.test_rgb_wiring
+    exit 0
+    ;;
   start)
     ;;
   *)
-    echo "用法：$0 [start|stop|status]" >&2
+    echo "用法：$0 [start|stop|status|logs]" >&2
     exit 2
     ;;
 esac
@@ -95,20 +113,22 @@ write_pid() {
 }
 
 echo "啟動攝影機錄影（每 ${CAMERA_SEGMENT_SECONDS:-300} 秒完成一段；影片：$PROJECT_DIR/recordings）..."
-"$PYTHON_BIN" -m iot_control.camera > logs/camera.log 2>&1 &
+"$PYTHON_BIN" -m house_control.camera > logs/camera.log 2>&1 &
 CAMERA_PID=$!
 write_pid camera "$CAMERA_PID"
 
 echo "啟動 MQTT 控制器..."
 start_controller() {
-  "$PYTHON_BIN" -m iot_control.house_pi > logs/controller.log 2>&1 &
+  printf '\n[%s] 啟動 MQTT 控制器\n' "$(date '+%Y-%m-%d %H:%M:%S %z')" >> logs/controller.log
+  PYTHONUNBUFFERED=1 "$PYTHON_BIN" -m house_control.controller >> logs/controller.log 2>&1 &
   CONTROLLER_PID=$!
   write_pid controller "$CONTROLLER_PID"
+  printf '[%s] MQTT 控制器 PID=%s\n' "$(date '+%Y-%m-%d %H:%M:%S %z')" "$CONTROLLER_PID" >> logs/controller.log
 }
 start_controller
 
 echo "啟動 API：http://0.0.0.0:8000"
-"$UVICORN_BIN" app.server:app --host 0.0.0.0 --port 8000 > logs/api.log 2>&1 &
+"$UVICORN_BIN" house_control.api:app --host 0.0.0.0 --port 8000 > logs/api.log 2>&1 &
 API_PID=$!
 write_pid api "$API_PID"
 
@@ -122,15 +142,21 @@ echo "House Control 已啟動。App API：http://<樹莓派IP>:8000"
 echo "錄影檔位置：$PROJECT_DIR/recordings"
 echo "按 Ctrl+C 可同時停止所有服務。"
 
-# 攝影機與 API 是手機監看所必需的服務；控制器（MQTT／RFID／DHT）
-# 即使暫時失敗，也不能使這兩項服務一併停止。
+
 while true; do
   if ! kill -0 "$CAMERA_PID" 2>/dev/null || ! kill -0 "$API_PID" 2>/dev/null; then
     echo "攝影機或 API 已停止，請查看 logs/camera.log 與 logs/api.log" >&2
     exit 1
   fi
   if ! kill -0 "$CONTROLLER_PID" 2>/dev/null; then
-    echo "MQTT 控制器已停止，正在重新啟動；請查看 logs/controller.log" >&2
+    CONTROLLER_EXIT_CODE=0
+    if wait "$CONTROLLER_PID" 2>/dev/null; then :; else CONTROLLER_EXIT_CODE=$?; fi
+    echo "MQTT 控制器已停止（exit $CONTROLLER_EXIT_CODE），5 秒後重新啟動；請查看 logs/controller.log" >&2
+    echo "最近的控制器日誌：" >&2
+    tail -n 20 logs/controller.log >&2 || true
+    printf '[%s] MQTT 控制器停止（exit %s），5 秒後重新啟動\n' \
+      "$(date '+%Y-%m-%d %H:%M:%S %z')" "$CONTROLLER_EXIT_CODE" >> logs/controller.log
+    sleep 5
     start_controller
   fi
   sleep 2

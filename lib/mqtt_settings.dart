@@ -1,4 +1,5 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:mqtt_client/mqtt_server_client.dart';
 
 class MqttSettings {
   const MqttSettings({
@@ -12,6 +13,14 @@ class MqttSettings {
   final int port;
   final String username;
   final String password;
+}
+
+Future<void> connectMqttClient(MqttServerClient client, MqttSettings settings) {
+  final username = settings.username.trim();
+  if (username.isEmpty && settings.password.isEmpty) {
+    return client.connect();
+  }
+  return client.connect(username, settings.password);
 }
 
 class MqttSettingsStore {
@@ -28,18 +37,16 @@ class MqttSettingsStore {
       _storage.read(key: _usernameKey),
       _storage.read(key: _passwordKey),
     ]);
+    final host = values[0]?.trim() ?? '';
     final port = int.tryParse(values[1] ?? '');
-    if (values.any((value) => value == null || value.isEmpty) ||
-        port == null ||
-        port < 1 ||
-        port > 65535) {
+    if (host.isEmpty || port == null || port < 1 || port > 65535) {
       return null;
     }
     return MqttSettings(
-      host: values[0]!,
+      host: host,
       port: port,
-      username: values[2]!,
-      password: values[3]!,
+      username: values[2]?.trim() ?? '',
+      password: values[3] ?? '',
     );
   }
 

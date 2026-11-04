@@ -5,7 +5,7 @@ import time
 import RPi.GPIO as GPIO
 from mfrc522 import SimpleMFRC522
 
-from .house_pi import bind_card, record_access, utc_now
+from .controller import bind_card, record_access, utc_now
 
 TOPIC_BIND = "house/rfid/bind"
 TOPIC_EVENT = "house/rfid/event"

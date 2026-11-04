@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import time
 from datetime import datetime, timezone
@@ -7,13 +8,11 @@ from pathlib import Path
 import paho.mqtt.client as mqtt
 import RPi.GPIO as GPIO
 
-from .dht11_conn import read_dht11
-from .led_mqtt import LEDService, TOPIC_SET as LIGHT_TOPIC
+from .sensor import read_dht11
+from .light import LEDService, TOPIC_SET as LIGHT_TOPIC
 
 MQTT_HOST = "127.0.0.1"
 MQTT_PORT = 1883
-MQTT_USER = "houseapp"
-MQTT_PASSWORD = "123456"
 TOPIC_DHT = "house/dht11/reading"
 TOPIC_SCENE_EXECUTE = "house/scene/execute"
 TOPIC_SCENE_RESULT = "house/scene/result"
@@ -346,15 +345,54 @@ def execute_scene(scene_id, request_id, led, music, publish_result):
     return result
 
 
+def _load_env_file():
+    """讀取 house_control.env 到 os.environ，確保子程序也吃得到。"""
+    candidates = [
+        Path(__file__).resolve().parent.parent / "house_control.env",
+        Path.cwd() / "house_control.env",
+        Path.home() / "Desktop" / "pi" / "house_control.env",
+    ]
+    env_path = None
+    for p in candidates:
+        print(f"[env] 檢查：{p}  exists={p.is_file()}")
+        if p.is_file():
+            env_path = p
+            break
+    if env_path is None:
+        print("[env] 所有路徑都找不到 env 檔，跳過")
+        return
+    print(f"[env] 使用：{env_path}")
+    with open(env_path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key, value = key.strip(), value.strip()
+            if key and value:
+                os.environ[key] = value
+                print(f"[env] 設定 {key}={value[:40]}{'…' if len(value) > 40 else ''}")
+
+
 def main():
-    from .music_mqtt import MusicService, TOPIC_PLAY, TOPIC_STOP
-    from .rfid_mqtt import RFIDService, TOPIC_BIND, TOPIC_STATUS
+    _load_env_file()
+
+    from .music import MusicService, TOPIC_PLAY, TOPIC_STOP
+    from .rfid import RFIDService, TOPIC_BIND, TOPIC_STATUS
+    from .youtube_player import (
+        YouTubeService,
+        TOPIC_PLAY as YT_TOPIC_PLAY,
+        TOPIC_STOP as YT_TOPIC_STOP,
+        TOPIC_VOLUME as YT_TOPIC_VOLUME,
+    )
 
     GPIO.setwarnings(False)
     GPIO.setmode(GPIO.BOARD)
     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2, client_id="pi4-house-control")
-    client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
     rfid, led, music = RFIDService(client), LEDService(client), MusicService(client)
+    youtube = YouTubeService(client)
 
     def publish_light(command):
         client.publish(LIGHT_TOPIC, json.dumps(command), qos=1)
@@ -373,26 +411,51 @@ def main():
         mqtt_client.subscribe([
             (TOPIC_BIND, 1), (LIGHT_TOPIC, 1), (TOPIC_PLAY, 1), (TOPIC_STOP, 1),
             (TOPIC_SCENE_EXECUTE, 1),
+            (YT_TOPIC_PLAY, 1), (YT_TOPIC_STOP, 1), (YT_TOPIC_VOLUME, 1),
         ])
         mqtt_client.publish(TOPIC_STATUS, json.dumps({"online": True, "at": utc_now()}), qos=1, retain=True)
         led.report()
+        # 首次連線時就把 retained 狀態塞到 house/youtube/status，
+        # App 一打開就能看到「尚未播放」而不是空白。
+        youtube.publish_status()
         print("家庭控制器已連線 MQTT")
 
     def on_message(mqtt_client, userdata, message):
-        if message.topic == TOPIC_BIND:
-            rfid.handle_mqtt(message.payload, message.retain)
-        elif message.topic == LIGHT_TOPIC:
-            led.handle_mqtt(message.payload, message.retain)
-        elif message.topic == TOPIC_PLAY:
-            music.handle_play(message.payload, message.retain)
-        elif message.topic == TOPIC_STOP:
-            music.handle_stop(message.payload, message.retain)
-        elif message.topic == TOPIC_SCENE_EXECUTE and not message.retain:
-            try:
-                payload = json.loads(message.payload.decode("utf-8"))
-                execute_scene(int(payload["scene_id"]), str(payload.get("request_id", "")), led, music, publish_scene_result)
-            except (ValueError, TypeError, KeyError, UnicodeDecodeError, json.JSONDecodeError) as error:
-                publish_scene_result({"ok": False, "error": str(error), "at": utc_now()})
+        try:
+            payload = message.payload.decode("utf-8", errors="replace")
+            if len(payload) > 300:
+                payload = f"{payload[:300]}…"
+            print(f"MQTT 收到：topic={message.topic} retained={message.retain} payload={payload}")
+            if message.topic == TOPIC_BIND:
+                rfid.handle_mqtt(message.payload, message.retain)
+            elif message.topic == LIGHT_TOPIC:
+                led.handle_mqtt(message.payload, message.retain)
+            elif message.topic == TOPIC_PLAY:
+                music.handle_play(message.payload, message.retain)
+            elif message.topic == TOPIC_STOP:
+                music.handle_stop(message.payload, message.retain)
+            elif message.topic == YT_TOPIC_PLAY:
+                youtube.handle_play(message.payload, message.retain)
+            elif message.topic == YT_TOPIC_STOP:
+                youtube.handle_stop(message.payload, message.retain)
+            elif message.topic == YT_TOPIC_VOLUME:
+                youtube.handle_volume(message.payload, message.retain)
+            elif message.topic == TOPIC_SCENE_EXECUTE and not message.retain:
+                try:
+                    payload = json.loads(message.payload.decode("utf-8"))
+                    result = execute_scene(
+                        int(payload["scene_id"]),
+                        str(payload.get("request_id", "")),
+                        led,
+                        music,
+                        publish_scene_result,
+                    )
+                    print(f"情境執行完成：{result}")
+                except (ValueError, TypeError, KeyError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                    publish_scene_result({"ok": False, "error": str(error), "at": utc_now()})
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("on_message handler %s failed", message.topic)
 
     client.on_connect, client.on_message = on_connect, on_message
     client.reconnect_delay_set(1, 30)
@@ -422,7 +485,12 @@ def main():
     finally:
         led.close()
         music.stop()
+        youtube.stop()
         GPIO.output(12, GPIO.LOW)
         client.loop_stop()
         client.disconnect()
         GPIO.cleanup()
+
+
+if __name__ == "__main__":
+    main()

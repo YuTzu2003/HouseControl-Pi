@@ -1,5 +1,5 @@
 [project]
-name = "iot-control"
+name = "house-control"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -10,11 +10,15 @@ dependencies = [
     "paho-mqtt>=2.0,<3.0",
     "rpi-gpio>=0.7.1",
     "uvicorn[standard]>=0.30,<1.0",
+    "yt-dlp>=2024.10.22",
 ]
 
 [project.scripts]
-iot-control = "iot_control.house_pi:main"
+house-control = "house_control.controller:main"
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""

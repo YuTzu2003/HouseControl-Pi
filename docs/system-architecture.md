@@ -3,9 +3,9 @@
 本專案由兩個部分組成：
 
 1. **Flutter 手機 App**（`lib/`）— 使用者介面與 MQTT 用戶端。
-2. **樹莓派控制器**（`pi/`）— 連接 GPIO、感測器、攝影機與喇叭的服務集合，透過 MQTT 和手機 App 溝通。
+2. **樹莓派控制器**（`pi/`）— 連接 GPIO、感測器、攝影機與喇叭的服務集合，透過 MQTT 與 HTTP 和手機 App 溝通。
 
-兩端完全以 MQTT 主題為契約，手機 App 不呼叫 Pi 的 shell；同步使用者資料的 REST API 仍在但只做歷史查詢與家庭成員管理。
+即時控制與狀態主要使用 MQTT；攝影機、歷史資料、家庭成員、排程與情境管理則使用 FastAPI。手機 App 不會直接執行 Raspberry Pi 的 shell 指令。
 
 ---
 
@@ -15,18 +15,18 @@
 
 | 檔案 | 職責 |
 | --- | --- |
-| `main.dart` | App 進入點、主題、底部導航 `MainShell`、`HomePage`（燈光＋場景＋捷徑）、音樂模式 `_MusicModePage`。 |
+| `main.dart` | App 進入點、主題、家庭連線設定、底部導航 `MainShell` 與首頁控制介面。 |
 | `mqtt_settings.dart` | `MqttSettings` 資料類別、`MqttSettingsStore` 使用 `flutter_secure_storage` 保存連線設定、共用的 `connectMqttClient()`。 |
 | `mqtt_light_service.dart` | 訂閱/發佈 RGB 燈光（`house/room/light/*`），支援 on/off、模式（warm/cool/natural）與亮度。 |
 | `mqtt_music_service.dart` | 透過 `house/music/*` 讓 Pi 以 yt-dlp + mpv 播單一 YouTube URL。 |
-| `mqtt_youtube_service.dart` | **（新）** 獨立的 YouTube 播放控制器（`house/youtube/*`），支援音量調整與標題回報。 |
-| `youtube_page.dart` | **（新）** YouTube 模式 UI：貼連結、播放／停止、音量 slider、顯示目前標題。 |
+| `mqtt_youtube_service.dart` | YouTube 播放控制器（`house/youtube/*`），支援暫停、音量調整與標題回報。 |
+| `youtube_page.dart` | 家庭音樂 UI：貼連結、播放／暫停／停止、音量控制與操作說明。 |
 | `mqtt_rfid_service.dart` | RFID 綁卡、刷卡事件（`house/rfid/*`）。 |
 | `mqtt_scene_service.dart` | 情境模式（`house/scene/execute`、`house/scene/result`）。 |
 | `house_api.dart` | 樹莓派 FastAPI 的 REST client（歷史資料、情境 CRUD、自動化排程）。 |
-| `history_page.dart` | 溫溼度、RFID 刷卡紀錄的瀏覽頁。 |
+| `history_page.dart` | 溫溼度歷史紀錄的瀏覽頁。 |
 | `family_members.dart` | 家庭成員與 RFID 卡綁定 UI。 |
-| `rfid_card_api.dart` | 家庭成員／卡片 REST API 的 DTO。 |
+| `rfid_card_api.dart` | 門卡與通行紀錄 REST API 的 DTO。 |
 
 ### 1.2 Service ↔ MQTT topic 對應
 
@@ -34,8 +34,8 @@
 | --- | --- | --- |
 | `MqttLightService` | `house/room/light/set` | `house/room/light/state` |
 | `MqttMusicService` | `house/music/play`、`house/music/stop` | `house/music/state` |
-| `MqttYouTubeService` | `house/youtube/play`、`house/youtube/stop`、`house/youtube/volume` | `house/youtube/status` |
-| `MqttRfidService` | `house/rfid/bind` | `house/rfid/event`、`house/rfid/status` |
+| `MqttYouTubeService` | `house/youtube/play`、`house/youtube/stop`、`house/youtube/pause`、`house/youtube/volume` | `house/youtube/status` |
+| `MqttRfidService` | `house/rfid/bind` | `house/rfid/event` |
 | `MqttSceneService` | `house/scene/execute` | `house/scene/result` |
 
 每個 service 寫法一致：維護 `MqttServerClient`、暴露 `ValueNotifier<ConnectionStatus>` 與 `ValueNotifier<State>`，UI 直接 `ValueListenableBuilder`。新服務照這個 pattern 繼續擴充。
@@ -44,16 +44,16 @@
 
 ## 2. 樹莓派端（`pi/`）
 
-### 2.1 目錄結構（新版）
+### 2.1 目錄結構
 
 ```
 pi/
-├── house_control/           # Python 套件（取代舊版 pi/src/iot_control/）
+├── house_control/           # Raspberry Pi Python 服務套件
 │   ├── __init__.py
 │   ├── controller.py        # 主程式；MQTT 迴圈、排程、場景派遣、SQLite schema
 │   ├── light.py             # LEDService（GPIO PWM；house/room/light/*）
 │   ├── music.py             # MusicService（yt-dlp + mpv；house/music/*）
-│   ├── youtube_player.py    # 【新】YouTubeService（house/youtube/*，含音量 IPC）
+│   ├── youtube_player.py    # YouTubeService（house/youtube/*，含音量 IPC）
 │   ├── rfid.py              # RFIDService（MFRC522；house/rfid/*、蜂鳴器）
 │   ├── sensor.py            # DHT11 讀取
 │   ├── camera.py            # ffmpeg 分段錄影 + 即時 JPG 更新
@@ -63,8 +63,6 @@ pi/
 ├── start.sh                 # 啟動 camera / controller / api 三支背景行程 + PID 管理
 └── house_control.env.example # 環境變數（LED 排線、USB 喇叭 PipeWire sink 等）
 ```
-
-> 舊版 `pi/src/iot_control/` 以及 `pi/app/server.py`、`pi/test/` 已在這次重構全部刪除，由 `house_control/` 重新組織。
 
 ### 2.2 行程切分
 
@@ -85,8 +83,9 @@ API 與 Controller 都讀寫同一個 `house-pi.db` SQLite（`PRAGMA journal_mod
 | `house/music/play` | App → Pi | `{"url":"https://youtu.be/..."}` | 單首 YouTube 音訊播放。 |
 | `house/music/stop` | App → Pi | `{}` | 停止。 |
 | `house/music/state` | Pi → App（retained） | `{"state":"playing","url":"..."}` | 播放狀態。 |
-| `house/youtube/play` | App → Pi | `{"url":"..."}` 或 `{"video_id":"dQw4w9WgXcQ"}` | 新的 YouTube 服務；支援音量。 |
+| `house/youtube/play` | App → Pi | `{"url":"https://youtu.be/..."}` | 播放 YouTube 音訊。 |
 | `house/youtube/stop` | App → Pi | `{}` | 停止。 |
+| `house/youtube/pause` | App → Pi | `{}` | 暫停或繼續播放。 |
 | `house/youtube/volume` | App → Pi | `{"volume":70}` | 透過 mpv IPC 即時調整音量。 |
 | `house/youtube/status` | Pi → App（retained） | `{"state":"playing","url":"...","title":"...","volume":70}` | 含影片標題。 |
 | `house/rfid/bind` | App → Pi | `{"member_id":"A01","member_name":"媽媽"}` | 進入 60 秒綁卡等待。 |
@@ -121,6 +120,7 @@ flowchart LR
       SENS[sensor.read_dht11]
       CAM[camera.py ffmpeg]
       DB[(house-pi.db SQLite)]
+      FILES[(recordings/)]
       FA[api.py FastAPI]
     end
 
@@ -133,7 +133,7 @@ flowchart LR
     CTRL <--> DB
     FA <--> DB
     API <-- HTTP --> FA
-    CAM --> DB
+    CAM --> FILES
 ```
 
 主要流向：

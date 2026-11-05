@@ -38,7 +38,11 @@ class AppColors {
 }
 
 class HouseControlApp extends StatefulWidget {
-  const HouseControlApp({super.key,required this.initialSettings,this.autoConnect = true,});
+  const HouseControlApp({
+    super.key,
+    required this.initialSettings,
+    this.autoConnect = true,
+  });
   final MqttSettings? initialSettings;
   final bool autoConnect;
   @override
@@ -871,10 +875,7 @@ class _HomePageState extends State<HomePage> {
                     SizedBox(height: 2),
                     Text(
                       '一切都在掌握中',
-                      style: TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 14,
-                      ),
+                      style: TextStyle(color: AppColors.muted, fontSize: 14),
                     ),
                   ],
                 ),
@@ -991,8 +992,8 @@ class _TodaySensorCard extends StatelessWidget {
                 readings == null
                     ? '--'
                     : latest != null
-                        ? '${latest.temperature.toStringAsFixed(1)}°C'
-                        : '--',
+                    ? '${latest.temperature.toStringAsFixed(1)}°C'
+                    : '--',
                 style: const TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
@@ -1001,11 +1002,7 @@ class _TodaySensorCard extends StatelessWidget {
             ],
           ),
           const Spacer(),
-          Container(
-            width: 1,
-            height: 28,
-            color: AppColors.line,
-          ),
+          Container(width: 1, height: 28, color: AppColors.line),
           const Spacer(),
           Container(
             width: 36,
@@ -1036,8 +1033,8 @@ class _TodaySensorCard extends StatelessWidget {
                 readings == null
                     ? '--'
                     : latest != null
-                        ? '${latest.humidity.toStringAsFixed(0)}%'
-                        : '--',
+                    ? '${latest.humidity.toStringAsFixed(0)}%'
+                    : '--',
                 style: const TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
@@ -1048,15 +1045,17 @@ class _TodaySensorCard extends StatelessWidget {
           const Spacer(),
           GestureDetector(
             onTap: onRefresh,
-            child: const Icon(Icons.refresh_rounded,
-                size: 18, color: AppColors.muted),
+            child: const Icon(
+              Icons.refresh_rounded,
+              size: 18,
+              color: AppColors.muted,
+            ),
           ),
         ],
       ),
     );
   }
 }
-
 
 class _LiveCameraCard extends StatefulWidget {
   const _LiveCameraCard({required this.settings});
@@ -1297,7 +1296,16 @@ class _CameraPlaybackPageState extends State<_CameraPlaybackPage> {
     if (match == null) return value;
     final date = match.group(1)!;
     final time = match.group(2)!;
-    return '${date.substring(4, 6)}/${date.substring(6, 8)} ${time.substring(0, 2)}:${time.substring(2, 4)}';
+    final utc = DateTime.utc(
+      int.parse(date.substring(0, 4)),
+      int.parse(date.substring(4, 6)),
+      int.parse(date.substring(6, 8)),
+      int.parse(time.substring(0, 2)),
+      int.parse(time.substring(2, 4)),
+      int.parse(time.substring(4, 6)),
+    );
+    final localTime = utc.add(const Duration(hours: 8));
+    return '${localTime.month.toString().padLeft(2, '0')}/${localTime.day.toString().padLeft(2, '0')} ${localTime.hour.toString().padLeft(2, '0')}:${localTime.minute.toString().padLeft(2, '0')}';
   }
 
   String _fileSize(int bytes) =>
@@ -1421,15 +1429,15 @@ class _MqttLightingConsole extends StatelessWidget {
                             activeTrackColor: AppColors.accent,
                             thumbColor: AppColors.accent,
                             inactiveTrackColor: AppColors.line,
-                            overlayColor: AppColors.accent.withValues(alpha: .12),
+                            overlayColor: AppColors.accent.withValues(
+                              alpha: .12,
+                            ),
                           ),
                           child: Slider(
                             min: 0,
                             max: 100,
                             value: light.brightness,
-                            onChanged: connected
-                                ? onBrightnessChanged
-                                : null,
+                            onChanged: connected ? onBrightnessChanged : null,
                           ),
                         ),
                       ),
@@ -1558,10 +1566,7 @@ class _QuickButton extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(
-              Icons.chevron_right_rounded,
-              color: AppColors.muted,
-            ),
+            const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
           ],
         ),
       ),
@@ -1597,8 +1602,7 @@ class _PresetRow extends StatelessWidget {
       child: Row(
         children: [
           for (int i = 0; i < presets.length; i++) ...[
-            if (i > 0)
-              Container(width: 1, height: 40, color: AppColors.line),
+            if (i > 0) Container(width: 1, height: 40, color: AppColors.line),
             Expanded(
               child: GestureDetector(
                 onTap: enabled ? () => onSelect(presets[i].$1) : null,
@@ -1615,8 +1619,8 @@ class _PresetRow extends StatelessWidget {
                       i == 0
                           ? 15
                           : i == presets.length - 1
-                              ? 15
-                              : 0,
+                          ? 15
+                          : 0,
                     ),
                   ),
                   child: Column(
@@ -2000,40 +2004,6 @@ class _AutomationEditorState extends State<_AutomationEditor> {
     };
     _sceneId = rule?.sceneId;
   }
-
-  Future<void> _runScene(Scene scene) async {
-    if (scene.id == null) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('正在執行情境「${scene.name}」…')));
-    final result = await MqttSceneService(widget.settings).execute(scene.id!);
-    if (!mounted) return;
-    final message = result == null
-        ? '情境沒有收到樹莓派回覆'
-        : result.ok
-        ? '情境「${scene.name}」已完成'
-        : '情境執行失敗：${result.error ?? _sceneFailureMessage(result)}';
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
-    if (result != null) _load();
-  }
-
-  Future<bool?> _confirm(String title, String message) => showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: Text(title),
-      content: Text(message),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(dialogContext, true),
-          child: const Text('確認'),
-        ),
-      ],
-    ),
-  );
 
   @override
   void dispose() {

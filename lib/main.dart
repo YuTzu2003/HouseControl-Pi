@@ -21,42 +21,65 @@ Future<void> main() async {
 }
 
 class AppColors {
-  static const background = Color(0xFFF2F2F7);
+  static const background = Color(0xFFF4F4F5);
   static const surface = Color(0xFFFFFFFF);
-  static const surfaceRaised = Color(0xFFEAEAEE);
-  static const line = Color(0xFFE1E1E6);
-  static const text = Color(0xFF1C1C1E);
-  static const muted = Color(0xFF6E6E73);
-  static const selection = Color(0xFFE7E7EC);
-  static const selectionSoft = Color(0xFFF0F0F3);
-  static const blue = Color(0xFF3478F6);
-  static const green = Color(0xFF2E7D32);
-  static const red = Color(0xFFE04F4F);
-  static const amber = Color(0xFFB87916);
+  static const surfaceRaised = Color(0xFFECECED);
+  static const line = Color(0xFFE0E0E2);
+  static const text = Color(0xFF1A1A1A);
+  static const muted = Color(0xFF7A7A80);
+  static const selection = Color(0xFFE6E6E8);
+  static const selectionSoft = Color(0xFFF0F0F2);
+  static const accent = Color(0xFF1A1A1A);
+  static const accentSoft = Color(0xFFF0F0F2);
+  static const blue = Color(0xFF5B8FA8);
+  static const green = Color(0xFF5A8F6B);
+  static const red = Color(0xFFCC5F52);
+  static const amber = Color(0xFFC09236);
 }
 
 class HouseControlApp extends StatefulWidget {
-  const HouseControlApp({
-    super.key,
-    required this.initialSettings,
-    this.autoConnect = true,
-  });
-
+  const HouseControlApp({super.key,required this.initialSettings,this.autoConnect = true,});
   final MqttSettings? initialSettings;
   final bool autoConnect;
-
   @override
   State<HouseControlApp> createState() => _HouseControlAppState();
 }
 
 class _HouseControlAppState extends State<HouseControlApp> {
   MqttSettings? _settings;
+  MqttLightService? _machineService;
   bool _editingSettings = false;
 
   @override
   void initState() {
     super.initState();
     _settings = widget.initialSettings;
+    _machineService = _createMachineService(_settings);
+  }
+
+  MqttLightService? _createMachineService(MqttSettings? settings) {
+    if (settings == null) return null;
+    final service = MqttLightService(settings);
+    if (widget.autoConnect) service.connect();
+    return service;
+  }
+
+  Future<void> _saveSettings(MqttSettings settings) async {
+    await MqttSettingsStore().save(settings);
+    if (!mounted) return;
+    final previousService = _machineService;
+    setState(() {
+      _settings = settings;
+      _machineService = _createMachineService(settings);
+      _editingSettings = false;
+    });
+    previousService?.dispose();
+  }
+
+  @override
+  void dispose() {
+    _machineService?.dispose();
+    super.dispose();
   }
 
   @override
@@ -217,24 +240,89 @@ class _HouseControlAppState extends State<HouseControlApp> {
     ),
     home: _AppLaunchGate(
       child: _editingSettings || _settings == null
-          ? MqttSetupPage(
-              initialSettings: _settings,
-              onSaved: (settings) async {
-                await MqttSettingsStore().save(settings);
-                if (!mounted) return;
-                setState(() {
-                  _settings = settings;
-                  _editingSettings = false;
-                });
-              },
-            )
+          ? MqttSetupPage(initialSettings: _settings, onSaved: _saveSettings)
           : MainShell(
               settings: _settings!,
+              machineService: _machineService!,
               autoConnect: widget.autoConnect,
               onEditSettings: () => setState(() => _editingSettings = true),
             ),
     ),
   );
+}
+
+class _MachineConnectionStatus extends StatelessWidget {
+  const _MachineConnectionStatus({required this.status, required this.onRetry});
+
+  final LightConnectionStatus status;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final canRetry =
+        status == LightConnectionStatus.disconnected ||
+        status == LightConnectionStatus.failed;
+    final label = switch (status) {
+      LightConnectionStatus.connected => '樹莓派連線正常',
+      LightConnectionStatus.connecting => '樹莓派連線中',
+      LightConnectionStatus.unconfigured => '樹莓派尚未設定',
+      LightConnectionStatus.failed => '樹莓派已離線',
+      LightConnectionStatus.disconnected => '樹莓派已離線',
+    };
+    final color = switch (status) {
+      LightConnectionStatus.connected => AppColors.green,
+      LightConnectionStatus.connecting => AppColors.accent,
+      LightConnectionStatus.unconfigured => AppColors.amber,
+      LightConnectionStatus.failed => AppColors.red,
+      LightConnectionStatus.disconnected => AppColors.red,
+    };
+    return Semantics(
+      liveRegion: true,
+      button: canRetry,
+      label: 'Raspberry Pi 機台：$label${canRetry ? '，點此重新連線' : ''}',
+      child: Tooltip(
+        message: canRetry ? '點此重新連線' : 'Raspberry Pi 機台 $label',
+        child: InkWell(
+          onTap: canRetry ? onRetry : null,
+          borderRadius: BorderRadius.circular(99),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (status == LightConnectionStatus.connecting)
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: color,
+                    ),
+                  )
+                else
+                  Icon(
+                    status == LightConnectionStatus.connected
+                        ? Icons.check_circle_rounded
+                        : Icons.error_outline_rounded,
+                    color: color,
+                    size: 18,
+                  ),
+                const SizedBox(width: 5),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _AppLaunchGate extends StatefulWidget {
@@ -371,12 +459,12 @@ class _MqttSetupPageState extends State<MqttSetupPage> {
               const Icon(Icons.home_rounded, size: 48, color: AppColors.blue),
               const SizedBox(height: 24),
               const Text(
-                '連接你的樹莓派',
+                '連接你的家',
                 style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
               ),
               const SizedBox(height: 8),
               const Text(
-                '請輸入 MQTT broker 設定。若 broker 在樹莓派上，位址通常是它的區網 IP，例如 192.168.1.50。',
+                '請輸入安裝服務人員提供的家庭連線資料。完成後，就可以開始控制家中設備。',
                 style: TextStyle(color: AppColors.muted, height: 1.5),
               ),
               const SizedBox(height: 28),
@@ -392,79 +480,80 @@ class _MqttSetupPageState extends State<MqttSetupPage> {
                           keyboardType: TextInputType.url,
                           autocorrect: false,
                           decoration: const InputDecoration(
-                            labelText: 'Broker 位址',
-                            hintText: '192.168.1.50',
-                            prefixIcon: Icon(Icons.dns_outlined),
+                            labelText: '家庭連線位址',
+                            hintText: '由安裝服務人員提供',
+                            prefixIcon: Icon(Icons.home_work_outlined),
                           ),
                           validator: (value) {
                             final host = value?.trim() ?? '';
-                            if (host.isEmpty) return '請輸入樹莓派或 broker 位址';
+                            if (host.isEmpty) return '請輸入家庭連線位址';
                             if (host.contains('://') || host.contains('/')) {
-                              return '請只輸入 IP 或網域名稱，不要包含 http://';
+                              return '這個位址格式不正確，請重新確認';
                             }
                             return null;
                           },
                         ),
-                        const SizedBox(height: 16),
-                        TextFormField(
-                          controller: _port,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'MQTT 埠號',
-                            prefixIcon: Icon(Icons.settings_ethernet_rounded),
+                        const SizedBox(height: 8),
+                        ExpansionTile(
+                          tilePadding: EdgeInsets.zero,
+                          childrenPadding: const EdgeInsets.only(bottom: 8),
+                          title: const Text(
+                            '更多連線選項',
+                            style: TextStyle(fontWeight: FontWeight.w700),
                           ),
-                          validator: (value) {
-                            final port = int.tryParse(value ?? '');
-                            return port == null || port < 1 || port > 65535
-                                ? '請輸入 1 到 65535 的埠號'
-                                : null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            '若 MQTT broker 開放匿名連線，使用者名稱與密碼都可以留白。',
-                            style: TextStyle(
-                              color: AppColors.muted,
-                              fontSize: 13,
-                              height: 1.4,
+                          subtitle: const Text('只有安裝服務人員要求時才需要調整'),
+                          children: [
+                            TextFormField(
+                              controller: _port,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: '連線通道',
+                                prefixIcon: Icon(
+                                  Icons.settings_ethernet_rounded,
+                                ),
+                              ),
+                              validator: (value) {
+                                final port = int.tryParse(value ?? '');
+                                return port == null || port < 1 || port > 65535
+                                    ? '請確認連線通道是否正確'
+                                    : null;
+                              },
                             ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _username,
-                          autocorrect: false,
-                          decoration: const InputDecoration(
-                            labelText: 'MQTT 使用者名稱（可留白）',
-                            prefixIcon: Icon(Icons.person_outline_rounded),
-                          ),
-                          validator: (value) {
-                            if ((value?.trim().isEmpty ?? true) &&
-                                _password.text.isNotEmpty) {
-                              return '有設定密碼時，請同時輸入使用者名稱';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        TextFormField(
-                          controller: _password,
-                          obscureText: true,
-                          enableSuggestions: false,
-                          autocorrect: false,
-                          decoration: const InputDecoration(
-                            labelText: 'MQTT 密碼（可留白）',
-                            prefixIcon: Icon(Icons.lock_outline_rounded),
-                          ),
-                          validator: (value) {
-                            if ((value?.isEmpty ?? true) &&
-                                _username.text.trim().isNotEmpty) {
-                              return '有設定使用者名稱時，請同時輸入密碼';
-                            }
-                            return null;
-                          },
+                            const SizedBox(height: 16),
+                            TextFormField(
+                              controller: _username,
+                              autocorrect: false,
+                              decoration: const InputDecoration(
+                                labelText: '家庭帳號（選填）',
+                                prefixIcon: Icon(Icons.person_outline_rounded),
+                              ),
+                              validator: (value) {
+                                if ((value?.trim().isEmpty ?? true) &&
+                                    _password.text.isNotEmpty) {
+                                  return '輸入密碼時，也請輸入家庭帳號';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            TextFormField(
+                              controller: _password,
+                              obscureText: true,
+                              enableSuggestions: false,
+                              autocorrect: false,
+                              decoration: const InputDecoration(
+                                labelText: '家庭密碼（選填）',
+                                prefixIcon: Icon(Icons.lock_outline_rounded),
+                              ),
+                              validator: (value) {
+                                if ((value?.isEmpty ?? true) &&
+                                    _username.text.trim().isNotEmpty) {
+                                  return '輸入家庭帳號時，也請輸入密碼';
+                                }
+                                return null;
+                              },
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 24),
                         SizedBox(
@@ -480,7 +569,7 @@ class _MqttSetupPageState extends State<MqttSetupPage> {
                                       strokeWidth: 2,
                                     ),
                                   )
-                                : const Text('儲存並連線'),
+                                : const Text('完成設定'),
                           ),
                         ),
                       ],
@@ -490,7 +579,7 @@ class _MqttSetupPageState extends State<MqttSetupPage> {
               ),
               const SizedBox(height: 14),
               const Text(
-                '帳號與密碼會使用裝置的安全儲存空間保存，不會寫入原始碼。',
+                '你的連線資料會安全保存在這台裝置上。',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppColors.muted, fontSize: 12),
               ),
@@ -506,11 +595,13 @@ class MainShell extends StatefulWidget {
   const MainShell({
     super.key,
     required this.settings,
+    required this.machineService,
     required this.autoConnect,
     required this.onEditSettings,
   });
 
   final MqttSettings settings;
+  final MqttLightService machineService;
   final bool autoConnect;
   final VoidCallback onEditSettings;
   @override
@@ -526,15 +617,20 @@ class _MainShellState extends State<MainShell> {
   void initState() {
     super.initState();
     _pages = [
-      HomePage(settings: widget.settings, autoConnect: widget.autoConnect),
+      HomePage(
+        settings: widget.settings,
+        lightService: widget.machineService,
+        autoConnect: widget.autoConnect,
+      ),
       HistoryPage(settings: widget.settings),
       AutomationPage(settings: widget.settings),
       FamilyMembersPage(settings: widget.settings),
-      SettingsPage(host: widget.settings.host, onEdit: widget.onEditSettings),
+      SettingsPage(onEdit: widget.onEditSettings),
     ];
     _handleInitialShareIntent();
-    _shareIntentSub =
-        ReceiveSharingIntent.instance.getMediaStream().listen(_onSharedMedia);
+    _shareIntentSub = ReceiveSharingIntent.instance.getMediaStream().listen(
+      _onSharedMedia,
+    );
   }
 
   @override
@@ -586,9 +682,9 @@ class _MainShellState extends State<MainShell> {
           label: '控制',
         ),
         NavigationDestination(
-          icon: Icon(Icons.query_stats_outlined),
-          selectedIcon: Icon(Icons.query_stats),
-          label: '活動',
+          icon: Icon(Icons.thermostat_outlined),
+          selectedIcon: Icon(Icons.thermostat),
+          label: '環境溫度',
         ),
         NavigationDestination(
           icon: Icon(Icons.bolt_outlined),
@@ -610,12 +706,16 @@ class _MainShellState extends State<MainShell> {
   );
 }
 
-enum DemoState { ready, loading, offline, failure, empty }
-
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, required this.settings, this.autoConnect = true});
+  const HomePage({
+    super.key,
+    required this.settings,
+    this.lightService,
+    this.autoConnect = true,
+  });
 
   final MqttSettings settings;
+  final MqttLightService? lightService;
   final bool autoConnect;
   @override
   State<HomePage> createState() => _HomePageState();
@@ -623,22 +723,22 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   late final MqttLightService _lightService;
+  late final bool _ownsLightService;
   late final MqttRfidService _rfidService;
   Timer? _brightnessDebounce;
   List<SensorReading>? _todayReadings;
-  DemoState _state = DemoState.ready;
-  bool get _canControl => _state == DemoState.ready;
 
   @override
   void initState() {
     super.initState();
-    _lightService = MqttLightService(widget.settings);
+    _ownsLightService = widget.lightService == null;
+    _lightService = widget.lightService ?? MqttLightService(widget.settings);
     _lightService.lightState.addListener(_onLightStateChanged);
     _rfidService = MqttRfidService(widget.settings);
     _rfidService.event.addListener(_handleRfidEvent);
     _loadTodayReadings();
     if (widget.autoConnect) {
-      _lightService.connect();
+      if (_ownsLightService) _lightService.connect();
       _rfidService.connect();
     }
   }
@@ -703,7 +803,7 @@ class _HomePageState extends State<HomePage> {
     _lightService.lightState.removeListener(_onLightStateChanged);
     _rfidService.event.removeListener(_handleRfidEvent);
     _rfidService.dispose();
-    _lightService.dispose();
+    if (_ownsLightService) _lightService.dispose();
     super.dispose();
   }
 
@@ -720,11 +820,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _applyScene(String scene) {
-    if (!_canControl) return;
     if (_lightService.status.value != LightConnectionStatus.connected) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('燈光尚未連線，請檢查 MQTT 設定與樹莓派連線')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('燈光目前無法控制，請稍後再試')));
       return;
     }
     _brightnessDebounce?.cancel();
@@ -748,137 +846,99 @@ class _HomePageState extends State<HomePage> {
         .showSnackBar(SnackBar(content: Text('已送出「$scene」燈光指令')));
   }
 
-  void _chooseState() => showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: AppColors.surfaceRaised,
-    showDragHandle: true,
-    builder: (context) => SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                '展示連線狀態',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-              ),
-            ),
-            const SizedBox(height: 8),
-            for (final state in const [
-              (DemoState.ready, '已連線', Icons.wifi_rounded),
-              (DemoState.loading, '同步中', Icons.sync_rounded),
-              (DemoState.offline, '樹莓派離線', Icons.wifi_off_rounded),
-              (DemoState.failure, '操作失敗', Icons.error_outline_rounded),
-              (DemoState.empty, '未設定設備', Icons.add_to_queue_outlined),
-            ])
-              ListTile(
-                minVerticalPadding: 12,
-                leading: Icon(
-                  state.$3,
-                  color: state.$1 == DemoState.ready
-                      ? AppColors.blue
-                      : AppColors.text,
-                ),
-                title: Text(state.$2),
-                onTap: () {
-                  setState(() => _state = state.$1);
-                  Navigator.pop(context);
-                },
-              ),
-          ],
-        ),
-      ),
-    ),
-  );
-
   @override
   Widget build(BuildContext context) {
     final gutter = MediaQuery.sizeOf(context).width >= 700 ? 32.0 : 20.0;
-    return ListView(
-      padding: EdgeInsets.fromLTRB(gutter, 16, gutter, 32),
+    return Column(
       children: [
-        Row(
-          children: [
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'My House',
-                    style: TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.4,
+        Padding(
+          padding: EdgeInsets.fromLTRB(gutter, 16, gutter, 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'My House',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
+                      ),
                     ),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    '今天的家，一切都在掌握中',
-                    style: TextStyle(color: AppColors.muted),
-                  ),
-                ],
+                    SizedBox(height: 2),
+                    Text(
+                      '一切都在掌握中',
+                      style: TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            Container(
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.line),
+              ValueListenableBuilder<LightConnectionStatus>(
+                valueListenable: _lightService.status,
+                builder: (context, status, _) => _MachineConnectionStatus(
+                  status: status,
+                  onRetry: _lightService.connect,
+                ),
               ),
-              child: IconButton(
-                tooltip: '切換展示狀態',
-                onPressed: _chooseState,
-                icon: const Icon(Icons.tune_rounded),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 18),
-        _LiveCameraCard(settings: widget.settings),
-        const SizedBox(height: 22),
-        _TodaySensorCard(
-          readings: _todayReadings,
-          onRefresh: _loadTodayReadings,
-        ),
-        const SizedBox(height: 22),
-        const Text(
-          '家中設備',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 10),
-        const _Kicker('燈光控制'),
-        const SizedBox(height: 10),
-        _MqttLightingConsole(
-          service: _lightService,
-          onBrightnessChanged: (value) {
-            _lightService.previewBrightness(value);
-            _brightnessDebounce?.cancel();
-            _brightnessDebounce = Timer(
-              const Duration(milliseconds: 180),
-              () => _lightService.setLight(brightness: value),
-            );
-          },
-        ),
-        const SizedBox(height: 22),
-        const _Kicker('快捷操作'),
-        const SizedBox(height: 10),
-        _QuickControls(
-          enabled: _canControl,
-          onOpenPlayer: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => YouTubePage(settings: widget.settings),
-            ),
+            ],
           ),
         ),
-        const SizedBox(height: 22),
-        const _Kicker('情境模式'),
-        const SizedBox(height: 10),
-        _PresetRow(
-          selected: _sceneForLight(_lightService.lightState.value),
-          enabled: _canControl,
-          onSelect: _applyScene,
+        Expanded(
+          child: ListView(
+            padding: EdgeInsets.fromLTRB(gutter, 8, gutter, 32),
+            children: [
+              // -- Camera feed --
+              _LiveCameraCard(settings: widget.settings),
+              const SizedBox(height: 16),
+
+              // -- Inline environment reading --
+              _TodaySensorCard(
+                readings: _todayReadings,
+                onRefresh: _loadTodayReadings,
+              ),
+              const SizedBox(height: 20),
+
+              // -- Scene presets --
+              const _Kicker('情境模式'),
+              const SizedBox(height: 10),
+              _PresetRow(
+                selected: _sceneForLight(_lightService.lightState.value),
+                enabled: true,
+                onSelect: _applyScene,
+              ),
+              const SizedBox(height: 24),
+
+              // -- Light + Music side by side --
+              const _Kicker('控制中心'),
+              const SizedBox(height: 10),
+              _MqttLightingConsole(
+                service: _lightService,
+                onBrightnessChanged: (value) {
+                  _lightService.previewBrightness(value);
+                  _brightnessDebounce?.cancel();
+                  _brightnessDebounce = Timer(
+                    const Duration(milliseconds: 180),
+                    () => _lightService.setLight(brightness: value),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              _QuickControls(
+                enabled: true,
+                onOpenPlayer: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => YouTubePage(settings: widget.settings),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -894,89 +954,109 @@ class _TodaySensorCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final latest = readings?.isNotEmpty == true ? readings!.first : null;
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.line),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFDE8D8),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.thermostat_rounded,
+              color: AppColors.red,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(
-                Icons.wb_sunny_outlined,
-                color: AppColors.text,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              const Expanded(
-                child: Text(
-                  '今日環境',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              const Text(
+                '溫度',
+                style: TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
-              IconButton(
-                onPressed: onRefresh,
-                tooltip: '重新整理',
-                icon: const Icon(Icons.refresh_rounded, size: 20),
+              Text(
+                readings == null
+                    ? '--'
+                    : latest != null
+                        ? '${latest.temperature.toStringAsFixed(1)}°C'
+                        : '--',
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          if (readings == null)
-            const LinearProgressIndicator()
-          else if (latest == null)
-            const Text('目前沒有溫濕度資料')
-          else
-            Row(
-              children: [
-                const Icon(
-                  Icons.thermostat_rounded,
-                  color: AppColors.red,
-                  size: 22,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  '${latest.temperature.toStringAsFixed(1)}°',
-                  style: const TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(width: 18),
-                const Icon(
-                  Icons.water_drop_outlined,
-                  color: AppColors.blue,
-                  size: 22,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  '${latest.humidity.toStringAsFixed(0)}%',
-                  style: const TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  _formatReadingTime(latest.recordedAt),
-                  style: const TextStyle(color: AppColors.muted, fontSize: 11),
-                ),
-              ],
+          const Spacer(),
+          Container(
+            width: 1,
+            height: 28,
+            color: AppColors.line,
+          ),
+          const Spacer(),
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFFDCEEF3),
+              borderRadius: BorderRadius.circular(10),
             ),
+            child: const Icon(
+              Icons.water_drop_outlined,
+              color: AppColors.blue,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '濕度',
+                style: TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                readings == null
+                    ? '--'
+                    : latest != null
+                        ? '${latest.humidity.toStringAsFixed(0)}%'
+                        : '--',
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          GestureDetector(
+            onTap: onRefresh,
+            child: const Icon(Icons.refresh_rounded,
+                size: 18, color: AppColors.muted),
+          ),
         ],
       ),
     );
   }
 }
 
-String _formatReadingTime(String value) {
-  final date = DateTime.tryParse(value)?.toLocal();
-  if (date == null) return value;
-  return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')} 更新';
-}
 
 class _LiveCameraCard extends StatefulWidget {
   const _LiveCameraCard({required this.settings});
@@ -1023,7 +1103,7 @@ class _LiveCameraCardState extends State<_LiveCameraCard> {
                 color: Color(0xFF101417),
                 child: Center(
                   child: Text(
-                    '等待樹莓派攝影機啟動',
+                    '攝影機畫面準備中',
                     style: TextStyle(color: Colors.white),
                   ),
                 ),
@@ -1177,9 +1257,9 @@ class _CameraPlaybackPageState extends State<_CameraPlaybackPage> {
                     color: AppColors.surfaceRaised,
                     child: Padding(
                       padding: const EdgeInsets.all(16),
-                      child: Text(
-                        '載入失敗：$_playerError',
-                        style: const TextStyle(color: AppColors.red),
+                      child: const Text(
+                        '影片暫時無法播放，請稍後再試。',
+                        style: TextStyle(color: AppColors.red),
                       ),
                     ),
                   ),
@@ -1228,13 +1308,16 @@ class _Kicker extends StatelessWidget {
   const _Kicker(this.value);
   final String value;
   @override
-  Widget build(BuildContext context) => Text(
-    value,
-    style: const TextStyle(
-      color: AppColors.muted,
-      fontWeight: FontWeight.w800,
-      fontSize: 12,
-      letterSpacing: 1.6,
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 2),
+    child: Text(
+      value,
+      style: const TextStyle(
+        color: AppColors.muted,
+        fontWeight: FontWeight.w600,
+        fontSize: 14,
+        letterSpacing: 0.2,
+      ),
     ),
   );
 }
@@ -1262,15 +1345,12 @@ class _MqttLightingConsole extends StatelessWidget {
       valueListenable: service.lightState,
       builder: (context, light, _) {
         final connected = status == LightConnectionStatus.connected;
-        final statusText = switch (status) {
-          LightConnectionStatus.connected => '已連線，狀態來自樹莓派',
-          LightConnectionStatus.connecting => '正在連線至 MQTT…',
-          LightConnectionStatus.unconfigured => '尚未設定 MQTT 連線資訊',
-          LightConnectionStatus.failed => '連線失敗，請確認 Wi-Fi 與 broker',
-          LightConnectionStatus.disconnected => '已離線',
-        };
-        final statusColor = connected ? AppColors.blue : AppColors.amber;
-        return Card(
+        return Container(
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.line),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(18),
             child: Column(
@@ -1278,103 +1358,124 @@ class _MqttLightingConsole extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.lightbulb_rounded, color: AppColors.blue),
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: light.on
+                            ? AppColors.accentSoft
+                            : AppColors.surfaceRaised,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.lightbulb_rounded,
+                        color: light.on ? AppColors.accent : AppColors.muted,
+                        size: 22,
+                      ),
+                    ),
                     const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        '客廳主燈',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                        ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '客廳主燈',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            light.on ? '已開啟' : '已關閉',
+                            style: const TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     Switch(
                       value: light.on,
+                      activeTrackColor: AppColors.accent,
+                      activeThumbColor: Colors.white,
                       onChanged: connected
                           ? (value) => service.setLight(on: value)
                           : null,
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Icon(
-                      connected ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-                      size: 16,
-                      color: statusColor,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        statusText,
-                        style: TextStyle(color: statusColor, fontSize: 12),
+                if (light.on) ...[
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.brightness_6_outlined,
+                        color: AppColors.muted,
+                        size: 20,
                       ),
-                    ),
-                    if (!connected &&
-                        status != LightConnectionStatus.unconfigured)
-                      TextButton(
-                        onPressed: service.connect,
-                        child: const Text('重試'),
-                      ),
-                  ],
-                ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 18),
-                  child: Divider(color: AppColors.line, height: 1),
-                ),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.brightness_6_outlined,
-                      color: AppColors.muted,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Slider(
-                        min: 0,
-                        max: 100,
-                        value: light.brightness,
-                        onChanged: connected && light.on
-                            ? onBrightnessChanged
-                            : null,
-                      ),
-                    ),
-                    SizedBox(
-                      width: 42,
-                      child: Text(
-                        '${light.brightness.round()}%',
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final mode in _modes)
-                      ChoiceChip(
-                        label: Text(mode.$2),
-                        selected: light.mode == mode.$1,
-                        onSelected: connected
-                            ? (_) => service.setLight(mode: mode.$1)
-                            : null,
-                        selectedColor: AppColors.text,
-                        labelStyle: TextStyle(
-                          color: light.mode == mode.$1
-                              ? Colors.white
-                              : AppColors.text,
-                          fontWeight: FontWeight.w700,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            activeTrackColor: AppColors.accent,
+                            thumbColor: AppColors.accent,
+                            inactiveTrackColor: AppColors.line,
+                            overlayColor: AppColors.accent.withValues(alpha: .12),
+                          ),
+                          child: Slider(
+                            min: 0,
+                            max: 100,
+                            value: light.brightness,
+                            onChanged: connected
+                                ? onBrightnessChanged
+                                : null,
+                          ),
                         ),
-                        backgroundColor: AppColors.surfaceRaised,
-                        side: const BorderSide(color: AppColors.line),
                       ),
-                  ],
-                ),
+                      SizedBox(
+                        width: 42,
+                        child: Text(
+                          '${light.brightness.round()}%',
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final mode in _modes)
+                        ChoiceChip(
+                          label: Text(mode.$2),
+                          selected: light.mode == mode.$1,
+                          onSelected: connected
+                              ? (_) => service.setLight(mode: mode.$1)
+                              : null,
+                          selectedColor: AppColors.accent,
+                          labelStyle: TextStyle(
+                            color: light.mode == mode.$1
+                                ? Colors.white
+                                : AppColors.text,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                          backgroundColor: AppColors.surfaceRaised,
+                          side: BorderSide(
+                            color: light.mode == mode.$1
+                                ? AppColors.accent
+                                : AppColors.line,
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -1385,17 +1486,14 @@ class _MqttLightingConsole extends StatelessWidget {
 }
 
 class _QuickControls extends StatelessWidget {
-  const _QuickControls({
-    required this.enabled,
-    required this.onOpenPlayer,
-  });
+  const _QuickControls({required this.enabled, required this.onOpenPlayer});
   final bool enabled;
   final VoidCallback onOpenPlayer;
   @override
   Widget build(BuildContext context) => _QuickButton(
-    icon: Icons.play_circle_outline_rounded,
-    label: '播放器',
-    primary: true,
+    icon: Icons.music_note_rounded,
+    label: '音樂播放',
+    subtitle: '開啟播放器',
     enabled: enabled,
     onTap: onOpenPlayer,
   );
@@ -1405,38 +1503,64 @@ class _QuickButton extends StatelessWidget {
   const _QuickButton({
     required this.icon,
     required this.label,
-    this.primary = false,
+    this.subtitle,
     required this.enabled,
     required this.onTap,
   });
   final IconData icon;
   final String label;
-  final bool primary, enabled;
+  final String? subtitle;
+  final bool enabled;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: 74,
-    child: Material(
-      color: primary ? AppColors.text : AppColors.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: primary ? AppColors.text : AppColors.line),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: enabled ? onTap : null,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+  Widget build(BuildContext context) => Material(
+    color: AppColors.surface,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(20),
+      side: const BorderSide(color: AppColors.line),
+    ),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: enabled ? onTap : null,
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Row(
           children: [
-            Icon(icon, color: primary ? Colors.white : AppColors.text),
-            const SizedBox(height: 5),
-            Text(
-              label,
-              style: TextStyle(
-                color: primary ? Colors.white : AppColors.text,
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.accentSoft,
+                borderRadius: BorderRadius.circular(12),
               ),
+              child: Icon(icon, color: AppColors.accent, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (subtitle != null)
+                    Text(
+                      subtitle!,
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 13,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: AppColors.muted,
             ),
           ],
         ),
@@ -1459,34 +1583,70 @@ class _PresetRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const presets = [
-      ('回家', Icons.home_outlined),
-      ('專注', Icons.light_mode_outlined),
-      ('電影', Icons.movie_outlined),
-      ('晚安', Icons.nightlight_round),
+      ('回家', Icons.home_rounded, Color(0xFFC08B5C)),
+      ('專注', Icons.light_mode_rounded, Color(0xFF6A9A5B)),
+      ('電影', Icons.movie_rounded, Color(0xFF8678B0)),
+      ('晚安', Icons.bedtime_rounded, Color(0xFF5B86A8)),
     ];
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final preset in presets)
-          ChoiceChip(
-            avatar: Icon(
-              preset.$2,
-              size: 17,
-              color: selected == preset.$1 ? Colors.white : AppColors.muted,
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Row(
+        children: [
+          for (int i = 0; i < presets.length; i++) ...[
+            if (i > 0)
+              Container(width: 1, height: 40, color: AppColors.line),
+            Expanded(
+              child: GestureDetector(
+                onTap: enabled ? () => onSelect(presets[i].$1) : null,
+                behavior: HitTestBehavior.opaque,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOut,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    color: selected == presets[i].$1
+                        ? presets[i].$3.withValues(alpha: .12)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(
+                      i == 0
+                          ? 15
+                          : i == presets.length - 1
+                              ? 15
+                              : 0,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        presets[i].$2,
+                        color: selected == presets[i].$1
+                            ? presets[i].$3
+                            : AppColors.muted,
+                        size: 22,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        presets[i].$1,
+                        style: TextStyle(
+                          color: selected == presets[i].$1
+                              ? presets[i].$3
+                              : AppColors.text,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
-            label: Text(preset.$1),
-            selected: selected == preset.$1,
-            onSelected: enabled ? (_) => onSelect(preset.$1) : null,
-            selectedColor: AppColors.text,
-            backgroundColor: AppColors.surface,
-            side: const BorderSide(color: AppColors.line),
-            labelStyle: TextStyle(
-              color: selected == preset.$1 ? Colors.white : AppColors.text,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-      ],
+          ],
+        ],
+      ),
     );
   }
 }
@@ -1531,9 +1691,8 @@ class _AutomationPageState extends State<AutomationPage> {
     if (edited == null) return;
     final ok = await HouseApi(widget.settings).saveAutomation(edited);
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(ok ? '排程已儲存' : '排程儲存失敗，請確認樹莓派 API')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(ok ? '排程已儲存' : '目前無法儲存排程，請稍後再試')));
     if (ok) _load();
   }
 
@@ -1565,9 +1724,8 @@ class _AutomationPageState extends State<AutomationPage> {
     if (edited == null) return;
     final ok = await HouseApi(widget.settings).saveScene(edited);
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(ok ? '情境已儲存' : '情境儲存失敗，請確認樹莓派 API')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(ok ? '情境已儲存' : '目前無法儲存情境，請稍後再試')));
     if (ok) _load();
   }
 
@@ -1601,10 +1759,10 @@ class _AutomationPageState extends State<AutomationPage> {
     final result = await MqttSceneService(widget.settings).execute(scene.id!);
     if (!mounted) return;
     final message = result == null
-        ? '情境沒有收到樹莓派回覆'
+        ? '情境執行逾時，請再試一次'
         : result.ok
         ? '情境「${scene.name}」已完成'
-        : '情境執行失敗：${result.error ?? _sceneFailureMessage(result)}';
+        : '情境暫時無法執行，請稍後再試';
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
     if (result != null) _load();
@@ -1734,7 +1892,7 @@ class _AutomationPageState extends State<AutomationPage> {
               ),
           const SizedBox(height: 14),
           const Text(
-            '排程由樹莓派本地時間執行；舊版只有單一開關動作的規則仍可使用。',
+            '排程會依家中設定的時間自動執行。',
             style: TextStyle(color: AppColors.muted, fontSize: 12, height: 1.4),
           ),
         ],
@@ -1783,16 +1941,6 @@ String _actionLabel(String action) => switch (action) {
   'scene' => '執行情境',
   _ => action,
 };
-
-String _sceneFailureMessage(SceneExecutionResult result) {
-  final failed = result.results
-      .where((item) => item['ok'] != true)
-      .map((item) => item['error'])
-      .whereType<String>()
-      .where((message) => message.isNotEmpty)
-      .join('、');
-  return failed.isEmpty ? '請查看樹莓派記錄' : failed;
-}
 
 String _sceneSummary(Scene scene) {
   final lightCount = scene.actions
@@ -1852,6 +2000,40 @@ class _AutomationEditorState extends State<_AutomationEditor> {
     };
     _sceneId = rule?.sceneId;
   }
+
+  Future<void> _runScene(Scene scene) async {
+    if (scene.id == null) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('正在執行情境「${scene.name}」…')));
+    final result = await MqttSceneService(widget.settings).execute(scene.id!);
+    if (!mounted) return;
+    final message = result == null
+        ? '情境沒有收到樹莓派回覆'
+        : result.ok
+        ? '情境「${scene.name}」已完成'
+        : '情境執行失敗：${result.error ?? _sceneFailureMessage(result)}';
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+    if (result != null) _load();
+  }
+
+  Future<bool?> _confirm(String title, String message) => showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('確認'),
+        ),
+      ],
+    ),
+  );
 
   @override
   void dispose() {
@@ -2435,7 +2617,7 @@ class _SceneEditorState extends State<_SceneEditor> {
                               ),
                               SizedBox(height: 3),
                               Text(
-                                '可讓情境同時播放或停止樹莓派喇叭。',
+                                '可讓情境同時播放或停止家中音響。',
                                 style: TextStyle(
                                   color: AppColors.muted,
                                   fontSize: 12,
@@ -2519,28 +2701,27 @@ class _PageSectionLabel extends StatelessWidget {
 }
 
 class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key, required this.host, required this.onEdit});
+  const SettingsPage({super.key, required this.onEdit});
 
-  final String host;
   final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) => _DarkPage(
     title: '設定',
-    subtitle: '管理家庭、設備與連線',
+    subtitle: '管理家庭與使用設定',
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _PageSectionLabel('裝置與連線'),
+        const _PageSectionLabel('家庭連線'),
         const SizedBox(height: 10),
-        _SettingsInfoGroup(host: host),
+        const _SettingsInfoGroup(),
         const SizedBox(height: 24),
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
             onPressed: onEdit,
             icon: const Icon(Icons.tune_rounded),
-            label: const Text('修改 MQTT 連線設定'),
+            label: const Text('管理家庭連線'),
           ),
         ),
       ],
@@ -2549,27 +2730,20 @@ class SettingsPage extends StatelessWidget {
 }
 
 class _SettingsInfoGroup extends StatelessWidget {
-  const _SettingsInfoGroup({required this.host});
-  final String host;
+  const _SettingsInfoGroup();
   @override
   Widget build(BuildContext context) => Card(
     child: Column(
       children: [
         _SettingsInfoRow(
           icon: Icons.memory_rounded,
-          title: 'Raspberry Pi',
-          value: host,
-        ),
-        const Divider(height: 1, indent: 64),
-        const _SettingsInfoRow(
-          icon: Icons.wifi_rounded,
-          title: 'MQTT 連線',
+          title: '家庭控制中心',
           value: '已設定',
         ),
         const Divider(height: 1, indent: 64),
         const _SettingsInfoRow(
           icon: Icons.info_outline_rounded,
-          title: 'App 版本',
+          title: '應用程式版本',
           value: '1.0.0',
         ),
       ],

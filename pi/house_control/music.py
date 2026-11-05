@@ -15,10 +15,7 @@ LOGGER = logging.getLogger(__name__)
 ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
 AUDIO_DEVICE = os.environ.get("HOUSE_CONTROL_AUDIO_DEVICE", "auto").strip()
 
-
 def _find_ytdlp():
-    # Prefer the version installed by ``uv sync`` for this project.  The
-    # distribution package can be old enough for YouTube extraction to fail.
     for name in ("yt-dlp", "youtube-dl"):
         venv_path = Path(sys.executable).with_name(name)
         if venv_path.is_file() and os.access(venv_path, os.X_OK):
@@ -31,10 +28,7 @@ def _find_ytdlp():
 
 
 def _single_video_url(url, parsed):
-    """Use the selected video, not an entire pasted YouTube playlist."""
-    if parsed.hostname and parsed.hostname.lower().rstrip(".") in {
-        "youtube.com", "www.youtube.com", "m.youtube.com"
-    } and parsed.path == "/watch":
+    if parsed.hostname and parsed.hostname.lower().rstrip(".") in {"youtube.com", "www.youtube.com", "m.youtube.com"} and parsed.path == "/watch":
         video_id = parse_qs(parsed.query).get("v", [""])[0]
         if video_id:
             return f"https://www.youtube.com/watch?v={video_id}"

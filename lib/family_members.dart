@@ -113,7 +113,7 @@ class _FamilyMembersPageState extends State<FamilyMembersPage> {
       _loadCards();
       _loadAccessLogs();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${event.memberName ?? '成員'} 的 RFID 卡已綁定')),
+        SnackBar(content: Text('${event.memberName ?? '成員'} 的門卡已綁定')),
       );
     }
   }
@@ -213,7 +213,7 @@ class _FamilyMembersPageState extends State<FamilyMembersPage> {
                       child: _FamilySectionHeader(
                         icon: Icons.groups_2_rounded,
                         title: '家庭成員',
-                        subtitle: '點擊成員可查看資料、管理 RFID 卡片。',
+                        subtitle: '點擊成員可查看資料、管理門卡。',
                       ),
                     ),
                   ),
@@ -262,7 +262,7 @@ class _FamilyMembersPageState extends State<FamilyMembersPage> {
                     sliver: const SliverToBoxAdapter(
                       child: _FamilySectionHeader(
                         icon: Icons.badge_outlined,
-                        title: 'RFID 通行紀錄',
+                        title: '門卡使用紀錄',
                         subtitle: '顯示最近 30 筆感應紀錄。',
                       ),
                     ),
@@ -281,7 +281,7 @@ class _FamilyMembersPageState extends State<FamilyMembersPage> {
                         child: Card(
                           child: ListTile(
                             leading: Icon(Icons.nfc_rounded),
-                            title: Text('還沒有 RFID 感應紀錄'),
+                            title: Text('還沒有門卡使用紀錄'),
                           ),
                         ),
                       ),
@@ -310,7 +310,11 @@ class _FamilyMembersPageState extends State<FamilyMembersPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(started ? '請在 60 秒內感應 ${member.name} 的卡片' : '無法連線到 MQTT'),
+        content: Text(
+          started
+              ? '請在 60 秒內感應 ${member.name} 的門卡'
+              : '門卡服務暫時無法使用，請稍後再試',
+        ),
       ),
     );
   }
@@ -369,8 +373,7 @@ class _RfidAccessLogCard extends StatelessWidget {
           color: color,
         ),
         title: Text(log.memberName ?? '未知卡片'),
-        subtitle: Text('${log.scannedAt}\nUID: ${log.uid}'),
-        isThreeLine: true,
+        subtitle: Text(log.scannedAt),
         trailing: Text(
           log.granted ? '通過' : '拒絕',
           style: TextStyle(color: color, fontWeight: FontWeight.w800),
@@ -455,7 +458,7 @@ class _MemberCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(99),
               ),
               child: Text(
-                card == null ? '尚未綁定' : 'RFID 已啟用',
+                card == null ? '尚未綁定' : '門卡已啟用',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
@@ -685,12 +688,11 @@ class _FamilyMemberDetailsPageState extends State<FamilyMemberDetailsPage> {
         Center(child: _AvatarBadge(avatarId: widget.member.avatarId, size: 96)),
         const SizedBox(height: 24),
         const Text(
-          'RFID 卡片',
+          '門卡',
           style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
         ),
         const SizedBox(height: 8),
         _DetailRow('綁定狀態', widget.card == null ? '尚未綁定' : '已綁定'),
-        _DetailRow('卡號', widget.card?.uid ?? '尚未綁定'),
         const SizedBox(height: 24),
         const Text(
           '個人資料',

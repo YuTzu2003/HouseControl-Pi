@@ -58,6 +58,7 @@ app.*.map.json
 # Local secrets and signing material
 .env
 .env.*
+.trail/
 !.env.example
 pi/house_control.env
 pi/.venv/

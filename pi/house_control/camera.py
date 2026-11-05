@@ -4,14 +4,7 @@ import subprocess
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from .config import (
-    CAMERA_RETENTION_MINUTES,
-    CAMERA_SEGMENT_SECONDS,
-    CAMERA_VIDEO_CODEC,
-    CAMERA_VIDEO_INPUT_ARGS,
-    LIVE_FRAME_PATH,
-    RECORDINGS_DIR,
-)
+from .config import (CAMERA_RETENTION_MINUTES,CAMERA_SEGMENT_SECONDS,CAMERA_VIDEO_CODEC,CAMERA_VIDEO_INPUT_ARGS,LIVE_FRAME_PATH,RECORDINGS_DIR,)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -23,7 +16,6 @@ def remove_expired_recordings(now: datetime | None = None) -> None:
         if started_at < cutoff:
             LOGGER.info("刪除過期片段：%s", recording.name)
             recording.unlink()
-
 
 def _recording_started_at(recording: Path) -> float:
     try:

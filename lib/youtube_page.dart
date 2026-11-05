@@ -44,14 +44,14 @@ class _YouTubePageState extends State<YouTubePage> {
   Future<void> _play() async {
     final text = _urlController.text.trim();
     if (text.isEmpty) {
-      _snack('請先貼上 YouTube 影片連結或影片 ID。');
+      _snack('請先貼上 YouTube 影片連結。');
       return;
     }
     setState(() => _sending = true);
     final ok = await _service.play(text);
     if (!mounted) return;
     setState(() => _sending = false);
-    if (!ok) _snack('無法連線到樹莓派，請確認 MQTT 設定。');
+    if (!ok) _snack('播放器目前無法使用，請稍後再試。');
   }
 
   Future<void> _stop() async {
@@ -82,11 +82,51 @@ class _YouTubePageState extends State<YouTubePage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  void _showHelp() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '怎麼播放音樂？',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '只要準備好 YouTube 影片連結，就能從家中音響播放。',
+                style: TextStyle(color: Colors.grey, height: 1.5),
+              ),
+              const SizedBox(height: 16),
+              const _HelpStep(number: '1', text: '在 YouTube 找到想聽的音樂。'),
+              const _HelpStep(number: '2', text: '點「分享」後選擇這個 App，或先複製連結。'),
+              const _HelpStep(number: '3', text: '回到這裡點「貼上連結」，再點「開始播放」。'),
+              const _HelpStep(number: '4', text: '播放後可隨時暫停、繼續、停止或調整音量。'),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(sheetContext),
+                  child: const Text('我知道了'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   String _connectionLabel(YouTubeConnectionStatus value) => switch (value) {
-    YouTubeConnectionStatus.connected => '樹莓派已連線',
-    YouTubeConnectionStatus.connecting => '正在連線…',
-    YouTubeConnectionStatus.failed => '連線失敗',
-    YouTubeConnectionStatus.disconnected => '未連線',
+    YouTubeConnectionStatus.connected => '播放器已就緒',
+    YouTubeConnectionStatus.connecting => '正在準備播放器…',
+    YouTubeConnectionStatus.failed => '播放器暫時無法使用',
+    YouTubeConnectionStatus.disconnected => '播放器尚未就緒',
   };
 
   @override
@@ -101,7 +141,16 @@ class _YouTubePageState extends State<YouTubePage> {
                     connection == YouTubeConnectionStatus.connected;
                 final isActive = playback.isActive;
                 return Scaffold(
-                  appBar: AppBar(title: const Text('播放器')),
+                  appBar: AppBar(
+                    title: const Text('家庭音樂'),
+                    actions: [
+                      IconButton(
+                        onPressed: _showHelp,
+                        tooltip: '播放器使用說明',
+                        icon: const Icon(Icons.help_outline_rounded),
+                      ),
+                    ],
+                  ),
                   body: SafeArea(
                     top: false,
                     child: Center(
@@ -122,8 +171,8 @@ class _YouTubePageState extends State<YouTubePage> {
                             if (isActive) ...[
                               _NowPlayingCard(
                                 playback: playback,
-                                onTogglePause: _togglePause,
-                                onStop: _stop,
+                                onTogglePause: connected ? _togglePause : null,
+                                onStop: connected ? _stop : null,
                                 onVolumeChanged: connected
                                     ? _onVolumeChanged
                                     : null,
@@ -139,7 +188,7 @@ class _YouTubePageState extends State<YouTubePage> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      isActive ? '換一首' : '播放音樂',
+                                      isActive ? '播放其他音樂' : '選擇要播放的音樂',
                                       style: const TextStyle(
                                         fontSize: 18,
                                         fontWeight: FontWeight.w800,
@@ -147,7 +196,7 @@ class _YouTubePageState extends State<YouTubePage> {
                                     ),
                                     const SizedBox(height: 4),
                                     const Text(
-                                      '貼上 YouTube 連結，樹莓派喇叭直接播放。',
+                                      '貼上 YouTube 影片連結，就能從家中音響播放。',
                                       style: TextStyle(
                                         fontSize: 13,
                                         color: Colors.grey,
@@ -161,19 +210,23 @@ class _YouTubePageState extends State<YouTubePage> {
                                       textInputAction: TextInputAction.go,
                                       onSubmitted: (_) => _play(),
                                       decoration: InputDecoration(
-                                        labelText: 'YouTube 連結或影片 ID',
+                                        labelText: 'YouTube 影片連結',
                                         prefixIcon:
                                             const Icon(Icons.link_rounded),
-                                        suffixIcon: IconButton(
-                                          tooltip: '從剪貼簿貼上',
-                                          onPressed: _pasteUrl,
-                                          icon: const Icon(
-                                            Icons.content_paste_rounded,
-                                          ),
-                                        ),
                                       ),
                                     ),
-                                    const SizedBox(height: 16),
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: TextButton.icon(
+                                        onPressed: _pasteUrl,
+                                        icon: const Icon(
+                                          Icons.content_paste_rounded,
+                                          size: 18,
+                                        ),
+                                        label: const Text('貼上連結'),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
                                     SizedBox(
                                       width: double.infinity,
                                       child: FilledButton.icon(
@@ -194,7 +247,7 @@ class _YouTubePageState extends State<YouTubePage> {
                                                 Icons.play_arrow_rounded,
                                               ),
                                         label: Text(
-                                          _sending ? '正在載入…' : '播放',
+                                          _sending ? '正在準備…' : '開始播放',
                                         ),
                                       ),
                                     ),
@@ -204,7 +257,7 @@ class _YouTubePageState extends State<YouTubePage> {
                             ),
 
                             // --- Error ---
-                            if (playback.hasError && playback.message != null)
+                            if (playback.hasError)
                               Padding(
                                 padding: const EdgeInsets.only(top: 16),
                                 child: Card(
@@ -224,7 +277,7 @@ class _YouTubePageState extends State<YouTubePage> {
                                         const SizedBox(width: 12),
                                         Expanded(
                                           child: Text(
-                                            playback.message!,
+                                            '播放時發生問題，請換一個影片或稍後再試。',
                                             style: TextStyle(
                                               color: Theme.of(context)
                                                   .colorScheme
@@ -240,7 +293,7 @@ class _YouTubePageState extends State<YouTubePage> {
 
                             const SizedBox(height: 24),
                             const Text(
-                              '提示：也可以在 YouTube App 分享影片到這個 App，直接播放。',
+                              '小提示：也可以在 YouTube 點「分享」，選擇這個 App 直接播放。',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.grey,
@@ -279,20 +332,37 @@ class _ConnectionChip extends StatelessWidget {
       const SizedBox(width: 6),
       Text(label, style: const TextStyle(fontSize: 13)),
       if (!connected && onRetry != null) ...[
-        const SizedBox(width: 8),
-        GestureDetector(
-          onTap: onRetry,
-          child: const Text(
-            '重試',
-            style: TextStyle(
-              fontSize: 13,
-              color: Colors.blue,
-              decoration: TextDecoration.underline,
-            ),
-          ),
-        ),
+        const Spacer(),
+        TextButton(onPressed: onRetry, child: const Text('再試一次')),
       ],
     ],
+  );
+}
+
+class _HelpStep extends StatelessWidget {
+  const _HelpStep({required this.number, required this.text});
+
+  final String number;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CircleAvatar(
+          radius: 14,
+          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+          child: Text(
+            number,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(child: Text(text, style: const TextStyle(height: 1.45))),
+      ],
+    ),
   );
 }
 
@@ -304,8 +374,8 @@ class _NowPlayingCard extends StatelessWidget {
     required this.onVolumeChanged,
   });
   final YouTubeState playback;
-  final VoidCallback onTogglePause;
-  final VoidCallback onStop;
+  final VoidCallback? onTogglePause;
+  final VoidCallback? onStop;
   final ValueChanged<double>? onVolumeChanged;
 
   @override
@@ -317,81 +387,68 @@ class _NowPlayingCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Icon(
-                  playback.isPaused
-                      ? Icons.pause_circle_filled_rounded
-                      : Icons.play_circle_filled_rounded,
-                  color: theme.colorScheme.primary,
-                  size: 40,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        playback.title ?? '正在播放',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15,
-                          height: 1.3,
-                        ),
-                      ),
-                      if (playback.isPaused)
-                        Text(
-                          '已暫停',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.secondary,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            if (playback.url != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  playback.url!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
-                ),
+            Text(
+              playback.isPaused ? '已暫停' : '正在播放',
+              style: TextStyle(
+                color: theme.colorScheme.primary,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
               ),
-            const SizedBox(height: 16),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              playback.title ?? '已開始播放',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 18,
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 20),
 
             // --- 控制按鈕 ---
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                IconButton.filled(
-                  onPressed: onTogglePause,
-                  iconSize: 32,
-                  icon: Icon(
-                    playback.isPaused
-                        ? Icons.play_arrow_rounded
-                        : Icons.pause_rounded,
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: onTogglePause,
+                    icon: Icon(
+                      playback.isPaused
+                          ? Icons.play_arrow_rounded
+                          : Icons.pause_rounded,
+                    ),
+                    label: Text(playback.isPaused ? '繼續播放' : '暫停播放'),
                   ),
-                  tooltip: playback.isPaused ? '繼續' : '暫停',
                 ),
-                const SizedBox(width: 16),
-                IconButton.outlined(
-                  onPressed: onStop,
-                  iconSize: 28,
-                  icon: const Icon(Icons.stop_rounded),
-                  tooltip: '停止',
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onStop,
+                    icon: const Icon(Icons.stop_rounded),
+                    label: const Text('停止播放'),
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 20),
 
             // --- 音量 ---
+            Row(
+              children: [
+                const Text(
+                  '音量',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const Spacer(),
+                Text(
+                  '${playback.volume}%',
+                  style: const TextStyle(color: Colors.grey),
+                ),
+              ],
+            ),
             Row(
               children: [
                 const Icon(Icons.volume_down_rounded, size: 20),
@@ -402,18 +459,10 @@ class _NowPlayingCard extends StatelessWidget {
                     divisions: 20,
                     value: playback.volume.toDouble(),
                     onChanged: onVolumeChanged,
+                    semanticFormatterCallback: (value) => '音量 ${value.round()}%',
                   ),
                 ),
                 const Icon(Icons.volume_up_rounded, size: 20),
-                const SizedBox(width: 4),
-                SizedBox(
-                  width: 30,
-                  child: Text(
-                    '${playback.volume}',
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                ),
               ],
             ),
           ],

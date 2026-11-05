@@ -2001,6 +2001,40 @@ class _AutomationEditorState extends State<_AutomationEditor> {
     _sceneId = rule?.sceneId;
   }
 
+  Future<void> _runScene(Scene scene) async {
+    if (scene.id == null) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('正在執行情境「${scene.name}」…')));
+    final result = await MqttSceneService(widget.settings).execute(scene.id!);
+    if (!mounted) return;
+    final message = result == null
+        ? '情境沒有收到樹莓派回覆'
+        : result.ok
+        ? '情境「${scene.name}」已完成'
+        : '情境執行失敗：${result.error ?? _sceneFailureMessage(result)}';
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+    if (result != null) _load();
+  }
+
+  Future<bool?> _confirm(String title, String message) => showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('確認'),
+        ),
+      ],
+    ),
+  );
+
   @override
   void dispose() {
     _name.dispose();

@@ -1,7 +1,5 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
-
 import 'house_api.dart';
 import 'mqtt_settings.dart';
 
@@ -53,7 +51,7 @@ class _HistoryPageState extends State<HistoryPage> {
     final readings = _readings;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('紀錄'),
+        title: const Text('環境溫度'),
         actions: [
           IconButton(
             onPressed: _refresh,
@@ -69,7 +67,11 @@ class _HistoryPageState extends State<HistoryPage> {
               child: ListView(
                 padding: const EdgeInsets.all(20),
                 children: [
-                  const _SectionTitle('環境趨勢'),
+                  const _SectionTitle('目前狀況'),
+                  const SizedBox(height: 10),
+                  _EnvironmentSummary(readings: readings),
+                  const SizedBox(height: 24),
+                  const _SectionTitle('今日變化'),
                   const SizedBox(height: 10),
                   _SensorHistoryCard(readings: readings),
                 ],
@@ -86,6 +88,81 @@ class _SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) => Text(
     title,
     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+  );
+}
+
+class _EnvironmentSummary extends StatelessWidget {
+  const _EnvironmentSummary({required this.readings});
+
+  final List<SensorReading> readings;
+
+  @override
+  Widget build(BuildContext context) {
+    if (readings.isEmpty) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('尚無環境資料，請稍後再查看'),
+        ),
+      );
+    }
+
+    final latest = readings.first;
+    return Row(
+      children: [
+        Expanded(
+          child: _EnvironmentMetric(
+            icon: Icons.thermostat_rounded,
+            color: const Color(0xFFC62828),
+            label: '室內溫度',
+            value: '${latest.temperature.toStringAsFixed(1)}°C',
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _EnvironmentMetric(
+            icon: Icons.water_drop_outlined,
+            color: const Color(0xFF0077B6),
+            label: '室內濕度',
+            value: '${latest.humidity.toStringAsFixed(0)}%',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EnvironmentMetric extends StatelessWidget {
+  const _EnvironmentMetric({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(height: 14),
+          Text(label, style: const TextStyle(color: Color(0xFF5F6F7D))),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w800),
+          ),
+        ],
+      ),
+    ),
   );
 }
 
@@ -106,7 +183,7 @@ class _SensorHistoryCard extends StatelessWidget {
               children: [
                 const Expanded(
                   child: Text(
-                    '溫濕度',
+                    '溫濕度趨勢',
                     style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
                   ),
                 ),
@@ -120,7 +197,7 @@ class _SensorHistoryCard extends StatelessWidget {
             const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
-              height: 220,
+              height: 200,
               child: ordered.isEmpty
                   ? const Center(child: Text('目前沒有溫濕度資料'))
                   : LayoutBuilder(
@@ -170,6 +247,13 @@ class _SensorHistoryCard extends StatelessWidget {
                 ],
               ),
             const SizedBox(height: 8),
+            const Center(
+              child: Text(
+                '點選圖表可查看當時的溫度與濕度',
+                style: TextStyle(color: Color(0xFF5F6F7D), fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 8),
             const Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -196,7 +280,7 @@ class _SensorHistoryCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                '讀值詳情',
+                '當時的環境',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 6),

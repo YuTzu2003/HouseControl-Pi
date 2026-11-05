@@ -1,9 +1,7 @@
 import time
-
 import RPi.GPIO as GPIO
 
 DHT_PIN = 7
-
 
 def read_dht11():
     GPIO.setup(DHT_PIN, GPIO.OUT)

@@ -4,10 +4,8 @@ import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-
 import paho.mqtt.client as mqtt
 import RPi.GPIO as GPIO
-
 from .sensor import read_dht11
 from .light import LEDService, TOPIC_SET as LIGHT_TOPIC
 
@@ -19,10 +17,8 @@ TOPIC_SCENE_RESULT = "house/scene/result"
 DHT_INTERVAL_SECONDS = 30 * 60
 DATABASE_PATH = Path.cwd() / "house-pi.db"
 
-
 def utc_now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
 
 def connection():
     db = sqlite3.connect(DATABASE_PATH)
@@ -43,7 +39,6 @@ def connection():
         last_triggered_at TEXT, start_time TEXT, end_time TEXT,
         start_action TEXT, end_action TEXT, start_mode TEXT, start_brightness REAL,
         end_mode TEXT, end_brightness REAL, scene_id INTEGER, last_result TEXT)""")
-    # Keep databases created by earlier versions usable without data loss.
     for name, definition in (
         ("start_time", "TEXT"), ("end_time", "TEXT"),
         ("start_action", "TEXT"), ("end_action", "TEXT"),
@@ -381,13 +376,7 @@ def main():
 
     from .music import MusicService, TOPIC_PLAY, TOPIC_STOP
     from .rfid import RFIDService, TOPIC_BIND, TOPIC_STATUS
-    from .youtube_player import (
-        YouTubeService,
-        TOPIC_PLAY as YT_TOPIC_PLAY,
-        TOPIC_STOP as YT_TOPIC_STOP,
-        TOPIC_PAUSE as YT_TOPIC_PAUSE,
-        TOPIC_VOLUME as YT_TOPIC_VOLUME,
-    )
+    from .youtube_player import (YouTubeService,TOPIC_PLAY as YT_TOPIC_PLAY,TOPIC_STOP as YT_TOPIC_STOP,TOPIC_PAUSE as YT_TOPIC_PAUSE,TOPIC_VOLUME as YT_TOPIC_VOLUME,)
 
     GPIO.setwarnings(False)
     GPIO.setmode(GPIO.BOARD)
@@ -416,8 +405,6 @@ def main():
         ])
         mqtt_client.publish(TOPIC_STATUS, json.dumps({"online": True, "at": utc_now()}), qos=1, retain=True)
         led.report()
-        # 首次連線時就把 retained 狀態塞到 house/youtube/status，
-        # App 一打開就能看到「尚未播放」而不是空白。
         youtube.publish_status()
         print("家庭控制器已連線 MQTT")
 
@@ -493,7 +480,6 @@ def main():
         client.loop_stop()
         client.disconnect()
         GPIO.cleanup()
-
 
 if __name__ == "__main__":
     main()

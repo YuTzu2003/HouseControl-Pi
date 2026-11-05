@@ -1,7 +1,6 @@
 import json
 import math
 import os
-
 import RPi.GPIO as GPIO
 
 TOPIC_SET = "house/room/light/set"
@@ -24,9 +23,7 @@ def _channel_order():
 
 
 CHANNEL_ORDER = _channel_order()
-COMMON_ANODE = os.environ.get("HOUSE_CONTROL_LED_COMMON_ANODE", "false").strip().lower() in {
-    "1", "true", "yes", "on",
-}
+COMMON_ANODE = os.environ.get("HOUSE_CONTROL_LED_COMMON_ANODE", "false").strip().lower() in {"1", "true", "yes", "on",}
 
 
 def _off_duty_cycle():
@@ -43,10 +40,7 @@ class LEDService:
             pwm = GPIO.PWM(pin, 1000)
             pwm.start(_off_duty_cycle())
             self.pwms.append(pwm)
-        print(
-            f"LED 設定：腳位={PINS}，通道順序={CHANNEL_ORDER}，"
-            f"共陽極={'是' if COMMON_ANODE else '否'}"
-        )
+        print(f"LED 設定：腳位={PINS}，通道順序={CHANNEL_ORDER}，"f"共陽極={'是' if COMMON_ANODE else '否'}")
 
     def handle_mqtt(self, payload, retained=False):
         if retained or len(payload) > 1024:
@@ -63,7 +57,6 @@ class LEDService:
             print(f"燈光指令失敗：{error}")
 
     def apply_command(self, data):
-        """Validate and apply one light action; return (ok, error)."""
         try:
             updated = self.state.copy()
             if "on" in data:
@@ -92,7 +85,6 @@ class LEDService:
         self.apply_rgb(red, green, blue, scale=scale)
 
     def apply_rgb(self, red, green, blue, *, scale=1):
-        """Set canonical RGB values (0–100); primarily used by the wiring test."""
         channels = {"r": red, "g": green, "b": blue}
         for pwm, channel in zip(self.pwms, CHANNEL_ORDER):
             duty_cycle = channels[channel] * scale

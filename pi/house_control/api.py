@@ -1,23 +1,11 @@
 import asyncio
 from pathlib import Path
-
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from typing import Literal
-
 from pydantic import BaseModel, Field, model_validator
-from house_control.controller import (
-    delete_automation,
-    delete_scene,
-    get_card,
-    list_access_logs,
-    list_automations,
-    list_cards,
-    list_dht11_readings,
-    list_scenes,
-    save_automation,
-    save_scene,
-)
+from house_control.controller import (delete_automation,delete_scene,get_card,list_access_logs,list_automations,list_cards,
+    list_dht11_readings,list_scenes,save_automation,save_scene,)
 from house_control.config import LIVE_FRAME_PATH, RECORDINGS_DIR
 
 app = FastAPI(title="IOT Control RFID API", version="1.0.0")
@@ -38,7 +26,6 @@ class DHT11Reading(BaseModel):
 class AutomationRule(BaseModel):
     id: int | None = None
     name: str = Field(min_length=1, max_length=80)
-    # `time` and `action` remain in the wire model for old app versions.
     time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     days: list[int] = Field(min_length=1)
     action: Literal["on", "off", "scene"] | None = None
@@ -103,7 +90,6 @@ def health():
 
 
 async def live_camera_frames():
-    """Send the newest JPEG repeatedly without opening the webcam a second time."""
     while True:
         try:
             frame = LIVE_FRAME_PATH.read_bytes()
@@ -115,30 +101,17 @@ async def live_camera_frames():
 
 @app.get("/camera/live.mjpg")
 async def live_camera():
-    return StreamingResponse(
-        live_camera_frames(),
-        media_type="multipart/x-mixed-replace; boundary=frame",
-        headers={"Cache-Control": "no-store"},
-    )
-
+    return StreamingResponse(live_camera_frames(),media_type="multipart/x-mixed-replace; boundary=frame",headers={"Cache-Control": "no-store"},)
 
 @app.get("/camera/live.jpg")
 def live_camera_frame():
     if not LIVE_FRAME_PATH.is_file():
         raise HTTPException(status_code=503, detail="Camera is starting")
-    # ffmpeg 會持續覆寫 live.jpg。FileResponse 先取得 Content-Length、
-    # 再串流讀取檔案時，檔案可能已變大，造成 HTTP 回應中斷。
-    # 先讀取一份當下快照可確保 Content-Length 與內容一致。
     try:
         frame = LIVE_FRAME_PATH.read_bytes()
     except FileNotFoundError:
         raise HTTPException(status_code=503, detail="Camera is starting") from None
-    return Response(
-        content=frame,
-        media_type="image/jpeg",
-        headers={"Cache-Control": "no-store"},
-    )
-
+    return Response(content=frame,media_type="image/jpeg",headers={"Cache-Control": "no-store"},)
 
 @app.get("/camera/recordings")
 def recordings():
@@ -148,7 +121,6 @@ def recordings():
         if not file.name.endswith(".partial.mp4")
     ]
 
-
 @app.get("/camera/recordings/{name}")
 def recording(name: str):
     file = RECORDINGS_DIR / Path(name).name
@@ -156,12 +128,9 @@ def recording(name: str):
         raise HTTPException(status_code=404, detail="Recording not found")
     return FileResponse(file, media_type="video/mp4", filename=file.name)
 
-
 @app.get("/rfid/cards", response_model=list[Card])
 def cards(member_id: str | None = Query(default=None, max_length=100)):
-    """列出全部卡片，或以 member_id 過濾。"""
     return list_cards(member_id)
-
 
 @app.get("/rfid/cards/{uid}", response_model=Card)
 def card(uid: str):
@@ -213,7 +182,6 @@ def create_scene(scene: Scene):
         return save_scene(scene.model_dump())
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-
 
 @app.put("/scenes/{scene_id}", response_model=Scene)
 def update_scene(scene_id: int, scene: Scene):
